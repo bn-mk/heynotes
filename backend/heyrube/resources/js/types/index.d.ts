@@ -35,4 +35,21 @@ export interface User {
     updated_at: string;
 }
 
+export interface JournalEntry {
+    journal_id: string;
+    content: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface JournalList {
+    id: number;
+    user_id: string;
+    title: string;
+    entries: JournalEntry[];
+    icon?: LucideIcon;
+};
+
+
+export type JournalListType = JournalList;
 export type BreadcrumbItemType = BreadcrumbItem;

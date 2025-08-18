@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { SidebarInset } from '@/components/ui/sidebar';
+import type { JournalListType } from '@/types';
 import { computed } from 'vue';
 
 interface Props {

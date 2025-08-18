@@ -19,5 +19,12 @@ class DatabaseSeeder extends Seeder
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);
+
+        // Seed journals and entries for first user
+        $this->call([
+            TagSeeder::class,
+            JournalSeeder::class,
+            JournalEntrySeeder::class,
+        ]);
     }
 }
