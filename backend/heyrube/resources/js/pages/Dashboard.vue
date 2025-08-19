@@ -20,6 +20,8 @@ function renderMarkdown(content: string) {
 }
 
 const editingEntry = ref(null);
+const editingJournalId = ref<string | null>(null);
+const editingJournalTitle = ref('');
 
 const sortedEntries = computed(() => {
   const entries = journalStore.selectedJournal?.entries || [];
@@ -29,6 +31,26 @@ const sortedEntries = computed(() => {
     return db.getTime() - da.getTime();
   });
 });
+
+function handleEditTitle() {
+  if (journalStore.selectedJournal) {
+    editingJournalId.value = journalStore.selectedJournal.id;
+    editingJournalTitle.value = journalStore.selectedJournal.title;
+  }
+}
+
+function handleCancelEdit() {
+  editingJournalId.value = null;
+  editingJournalTitle.value = '';
+}
+
+async function handleSaveTitle() {
+  if (editingJournalId.value) {
+    await journalStore.updateJournal(editingJournalId.value, { title: editingJournalTitle.value });
+    editingJournalId.value = null;
+    editingJournalTitle.value = '';
+  }
+}
 
 function handleEditEntry(entry: any) {
   editingEntry.value = {...entry};
@@ -41,13 +63,13 @@ function handleEditSuccess(updatedEntry) {
   const originalJournalId = editingEntry.value.journal_id;
   const newJournalId = updatedEntry.journal_id;
 
-  // Remove from original journal's entries
+  // Remove from original journal\'s entries
   const originalJournal = journalStore.journals.find(j => j.id === originalJournalId);
   if (originalJournal && originalJournal.entries) {
     const idx = originalJournal.entries.findIndex(e => e.id === updatedEntry.id);
     if (idx > -1) originalJournal.entries.splice(idx, 1);
   }
-  // Prepend to new journal's entries
+  // Prepend to new journal\'s entries
   const newJournal = journalStore.journals.find(j => j.id === newJournalId);
   if (newJournal) {
     if (!newJournal.entries) newJournal.entries = [];
@@ -119,7 +141,23 @@ onMounted(() => {
       />
       <template v-else>
         <div v-if="journalStore.selectedJournal">
-          <h1 class="text-2xl font-bold mb-4">{{ journalStore.selectedJournal.title }}</h1>
+          <div class="flex items-center mb-4">
+            <h1 v-if="editingJournalId !== journalStore.selectedJournal.id" class="text-2xl font-bold">
+              {{ journalStore.selectedJournal.title }}
+            </h1>
+            <div v-else class="flex items-center">
+              <input v-model="editingJournalTitle" @keyup.enter="handleSaveTitle" @keyup.esc="handleCancelEdit" class="text-2xl font-bold" />
+              <button @click="handleSaveTitle" class="ml-2 px-2 py-1 bg-green-500 text-white rounded">Save</button>
+              <button @click="handleCancelEdit" class="ml-2 px-2 py-1 bg-red-500 text-white rounded">Cancel</button>
+            </div>
+            <button @click="handleEditTitle" v-if="editingJournalId !== journalStore.selectedJournal.id" class="ml-2">
+              <!-- Pencil Icon -->
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
+                <path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" />
+              </svg>
+            </button>
+          </div>
           <div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 items-start">
           <Card v-for="entry in sortedEntries" :key="entry.id">
 <div class="p-4 flex flex-col relative max-h-[33vh] overflow-hidden">

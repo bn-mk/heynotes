@@ -20,6 +20,7 @@ defineProps<{
                 <AppLogoIcon class="mr-2 size-8 fill-current text-white" />
                 {{ name }}
             </Link>
+            <img :src="'/journal_welcome_18.svg'" alt="Journal Illustration" class="mb-6 w-auto" />
             <div v-if="quote" class="relative z-20 mt-auto">
                 <blockquote class="space-y-2">
                     <p class="text-lg">&ldquo;{{ quote.message }}&rdquo;</p>
