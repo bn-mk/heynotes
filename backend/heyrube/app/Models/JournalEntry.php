@@ -5,9 +5,12 @@ namespace App\Models;
 use App\Models\Journal;
 use MongoDB\Laravel\Relations\BelongsTo;
 use MongoDB\Laravel\Eloquent\Model;
+use MongoDB\Laravel\Eloquent\SoftDeletes;
 
 class JournalEntry extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'journal_id',
         'content',
@@ -15,6 +18,8 @@ class JournalEntry extends Model
         'created_at',
         'updated_at',
     ];
+
+    protected $dates = ['deleted_at'];
     public function journal(): BelongsTo   
     {
         // For MongoDB: foreign key journal_id, owner key _id

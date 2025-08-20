@@ -78,11 +78,21 @@ class JournalController extends Controller
         return $journal;
     }
 
-    // Delete the journal entry
+    // Soft delete the journal and its entries
     public function destroy(Journal $journal)
     {
+        // Check if the user owns this journal
+        if ($journal->user_id !== Auth::id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        
+        // Soft delete all entries belonging to this journal
+        $journal->entries()->delete();
+        
+        // Soft delete the journal itself
         $journal->delete();
-        return response()->json(null, 204);
+        
+        return response()->json(['message' => 'Journal moved to trash'], 200);
     }
 
     // Delete an individual journal entry
@@ -104,5 +114,62 @@ class JournalController extends Controller
             'journal_id' => $validated['journal_id'] ?? $entry->journal_id
         ]);
         return response()->json($entry, 200);
+    }
+
+    // Get all trashed journals for the current user
+    public function trash()
+    {
+        $trashedJournals = Journal::onlyTrashed()
+            ->where('user_id', Auth::id())
+            ->with(['entries' => function ($query) {
+                $query->withTrashed();
+            }])
+            ->get();
+        
+        return response()->json($trashedJournals);
+    }
+
+    // Restore a soft-deleted journal and its entries
+    public function restore($id)
+    {
+        $journal = Journal::onlyTrashed()->where('_id', $id)->where('user_id', Auth::id())->firstOrFail();
+        
+        // Restore the journal
+        $journal->restore();
+        
+        // Restore all its entries
+        JournalEntry::onlyTrashed()->where('journal_id', $id)->restore();
+        
+        return response()->json(['message' => 'Journal restored successfully', 'journal' => $journal]);
+    }
+
+    // Permanently delete a soft-deleted journal and its entries
+    public function forceDestroy($id)
+    {
+        $journal = Journal::onlyTrashed()->where('_id', $id)->where('user_id', Auth::id())->firstOrFail();
+        
+        // Permanently delete all entries
+        JournalEntry::withTrashed()->where('journal_id', $id)->forceDelete();
+        
+        // Permanently delete the journal
+        $journal->forceDelete();
+        
+        return response()->json(['message' => 'Journal permanently deleted']);
+    }
+
+    // Empty all items from trash
+    public function emptyTrash()
+    {
+        // Get all trashed journals for the current user
+        $trashedJournals = Journal::onlyTrashed()->where('user_id', Auth::id())->get();
+        
+        foreach ($trashedJournals as $journal) {
+            // Permanently delete all entries
+            JournalEntry::withTrashed()->where('journal_id', $journal->_id)->forceDelete();
+            // Permanently delete the journal
+            $journal->forceDelete();
+        }
+        
+        return response()->json(['message' => 'Trash emptied successfully']);
     }
 }

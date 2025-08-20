@@ -35,7 +35,13 @@ import { Head, Link } from '@inertiajs/vue3';
         </header>
         <div class="flex w-full items-center justify-center opacity-100 transition-opacity duration-750 lg:grow starting:opacity-0">
             <main class="flex w-full max-w-[335px] flex-col-reverse overflow-hidden rounded-lg lg:max-w-4xl lg:flex-row">
-                   <img :src="'/journal_welcome_18.svg'" alt="Journal Illustration" class="mb-6 w-auto" />         
+<div class="w-full flex items-center justify-center">
+  <img 
+    :src="'/img/journal_pen_hey_rube.svg'"
+    alt="Journal Illustration"
+    class="w-[720px] max-w-full h-auto"
+  />
+</div>
             </main>
         </div>
         <div class="hidden h-14.5 lg:block"></div>

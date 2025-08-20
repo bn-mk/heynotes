@@ -7,14 +7,19 @@ use MongoDB\Laravel\Relations\BelongsTo;
 use MongoDB\Laravel\Relations\HasMany;
 use MongoDB\Laravel\Relations\EmbedsMany;
 use MongoDB\Laravel\Eloquent\Model;
+use MongoDB\Laravel\Eloquent\SoftDeletes;
 
 class Journal extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'title',
         'user_id',
         'tags',
     ];
+
+    protected $dates = ['deleted_at'];
 
     public function getRouteKeyName()
     {

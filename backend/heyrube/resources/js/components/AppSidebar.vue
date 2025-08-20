@@ -2,6 +2,7 @@
 import JournalList from '@/components/JournalList.vue';
 import NavFooter from '@/components/NavFooter.vue';
 import NavUser from '@/components/NavUser.vue';
+import TrashBin from '@/components/TrashBin.vue';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/vue3';
@@ -31,6 +32,9 @@ const footerNavItems: NavItem[] = [
                 </SidebarMenuItem>
                         <JournalList />
             </SidebarMenu>
+            <div class="px-4 py-2">
+                <TrashBin />
+            </div>
         </SidebarHeader>
 
         <SidebarContent>

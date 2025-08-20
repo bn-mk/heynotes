@@ -1,0 +1,26 @@
+<svg width="360" height="260" viewBox="0 0 360 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Journal (sketch style) -->
+  <rect x="60" y="80" width="160" height="110" rx="15" stroke="white" stroke-width="2.5" fill="none"/>
+  <rect x="75" y="95" width="130" height="80" rx="8" stroke="white" stroke-width="1.3" fill="none"/>
+  <!-- Binding lines -->
+  <rect x="67" y="80" width="12" height="110" rx="6" stroke="white" stroke-width="1.8" fill="none"/>
+  <circle cx="73" cy="110" r="2" fill="white"/>
+  <circle cx="73" cy="130" r="2" fill="white"/>
+  <circle cx="73" cy="150" r="2" fill="white"/>
+  <!-- Page lines (sketch) -->
+  <path d="M90 110 Q180 100 190 110" stroke="white" stroke-width="0.9" fill="none"/>
+  <path d="M93 126 Q145 120 187 126" stroke="white" stroke-width="0.8" fill="none"/>
+  <path d="M92 142 Q150 135 186 142" stroke="white" stroke-width="1" fill="none"/>
+  <!-- Pen (sketched) -->
+  <rect x="190" y="153" width="54" height="8" rx="3.3" fill="none" stroke="white" stroke-width="2" transform="rotate(-14, 190, 153)"/>
+  <ellipse cx="247" cy="156" rx="6" ry="7" fill="none" stroke="white" stroke-width="1.35"/>
+  <rect x="242.5" y="158.5" width="12" height="4" rx="1.1" fill="none" stroke="white" stroke-width="1" transform="rotate(-13, 242.5, 158.5)"/>
+  <polygon points="246,153 258,159 250,156" fill="none" stroke="white" stroke-width="1"/>
+  <!-- Extra hand sketch lines -->
+  <path d="M65 88 Q75 100 68 188" stroke="white" stroke-width="0.8" fill="none"/>
+  <path d="M87 100 Q115 112 84 166" stroke="white" stroke-width="1.1" fill="none"/>
+  <path d="M188 161 Q208 182 181 198 Q168 202 186 183" stroke="white" stroke-width="1.5" fill="none"/>
+  <!-- More sketch details for edge feel -->
+  <path d="M126 83 Q120 64 185 75" stroke="white" stroke-width="1.4" fill="none"/>
+</svg>
+
