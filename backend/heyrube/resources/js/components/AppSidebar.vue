@@ -1,21 +1,11 @@
 <script setup lang="ts">
 import JournalList from '@/components/JournalList.vue';
-import NavFooter from '@/components/NavFooter.vue';
 import NavUser from '@/components/NavUser.vue';
 import TrashBin from '@/components/TrashBin.vue';
+import CreateJournalDialog from '@/components/CreateJournalDialog.vue';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/vue3';
-import { ListCheckIcon, NotebookPen } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
-
-const footerNavItems: NavItem[] = [
-    {
-        title: 'Create a new Journal',
-        href: '/journals/create',
-        icon: NotebookPen,
-    },
-];
 
 </script>
 
@@ -41,7 +31,9 @@ const footerNavItems: NavItem[] = [
         </SidebarContent>
 
         <SidebarFooter>
-            <NavFooter :items="footerNavItems" />
+            <div class="px-4 py-2">
+                <CreateJournalDialog />
+            </div>
             <NavUser />
         </SidebarFooter>
     </Sidebar>
