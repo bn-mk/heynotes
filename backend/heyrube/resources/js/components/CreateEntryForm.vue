@@ -4,14 +4,17 @@ import { useJournalStore } from '@/stores/journals';
 import MarkdownIt from 'markdown-it';
 
 // PROPS & STORE
-const props = defineProps({ entryToEdit: { type: Object, default: null } });
+const props = defineProps({ 
+  entryToEdit: { type: Object, default: null },
+  createNewJournal: { type: Boolean, default: false }
+});
 const emit = defineEmits(['cancel', 'success']);
 const journalStore = useJournalStore();
 const journals = computed(() => journalStore.journals);
 
 // FORM STATE
-const creatingNewJournal = ref(false);
-const selectedJournalId = ref(journalStore.selectedJournalId);
+const creatingNewJournal = ref(props.createNewJournal);
+const selectedJournalId = ref(props.createNewJournal ? 'new' : journalStore.selectedJournalId);
 const entryContent = ref('');
 const newJournalTitle = ref('');
 const errors = ref<{ content?: string, title?: string }>({});
@@ -26,9 +29,18 @@ function defaultPrefill() {
   if (props.entryToEdit) {
     selectedJournalId.value = props.entryToEdit.journal_id || journalStore.selectedJournalId || '';
     entryContent.value = props.entryToEdit.content || '';
+  } else if (props.createNewJournal) {
+    creatingNewJournal.value = true;
+    selectedJournalId.value = 'new';
   }
 }
 watch(() => props.entryToEdit, defaultPrefill);
+watch(() => props.createNewJournal, (newVal) => {
+  if (newVal) {
+    creatingNewJournal.value = true;
+    selectedJournalId.value = 'new';
+  }
+});
 
 // HELPERS
 function getCookie(name: string) {
@@ -43,8 +55,16 @@ function isEditMode() {
 }
 
 // UI LABELS
-const formTitle = computed(() => isEditMode() ? 'Edit Journal Entry' : 'New Journal Entry');
-const buttonLabel = computed(() => isEditMode() ? 'Save Changes' : 'Save Entry');
+const formTitle = computed(() => {
+  if (isEditMode()) return 'Edit Journal Entry';
+  if (creatingNewJournal.value) return 'Create New Journal';
+  return 'New Journal Entry';
+});
+const buttonLabel = computed(() => {
+  if (isEditMode()) return 'Save Changes';
+  if (creatingNewJournal.value && !entryContent.value.trim()) return 'Create Journal';
+  return 'Save Entry';
+});
 const discardLabel = computed(() => isEditMode() ? 'Cancel' : 'Discard');
 
 // FORM ACTIONS
@@ -74,54 +94,94 @@ async function submit() {
       return;
     }
     try {
-      await fetch('/sanctum/csrf-cookie', { credentials: 'include' });
-      const response = await fetch('/journals', {
-        method: 'POST', credentials: 'include', headers: authHeaders(),
-        body: JSON.stringify({ title: newJournalTitle.value })
+      const response = await fetch('/api/journals', {
+        method: 'POST', 
+        credentials: 'include', 
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-XSRF-TOKEN': getCookie('XSRF-TOKEN') ?? '',
+        },
+        body: JSON.stringify({ title: newJournalTitle.value, tags: '' })
       });
-      if (!response.ok) throw new Error('Journal create failed');
+      
+      const contentType = response.headers.get('content-type');
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Journal create failed: ${response.status}`);
+      }
+      
+      // Check if response is JSON
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned non-JSON response');
+      }
+      
       const journal = await response.json();
-      journalId = journal.id;
+      journalId = journal.id || journal._id;
+      
+      // Add the new journal to the store
+      journalStore.journals.push({
+        ...journal,
+        id: journalId,
+        entries: [],
+      });
+      
+      // If no entry content, just select the new journal and exit
+      if (!entryContent.value.trim()) {
+        journalStore.selectJournal(journalId);
+        journalStore.stopCreatingEntry();
+        return;
+      }
     } catch (e) {
       errors.value.title = 'Could not create journal.';
       return;
     }
   }
-  if (!entryContent.value.trim()) {
+  
+  // Only require entry content if not creating a new journal or if content exists
+  if (!creatingNewJournal.value && !entryContent.value.trim()) {
     errors.value.content = 'Entry content is required.';
     return;
   }
-  try {
-    await fetch('/sanctum/csrf-cookie', { credentials: 'include' });
-    if (isEditMode()) {
-      // EDIT: PUT
-      const response = await fetch(`/api/journals/${journalId}/entries/${props.entryToEdit.id}`, {
-        method: 'PUT', credentials: 'include', headers: authHeaders(),
-        body: JSON.stringify({
-          content: entryContent.value,
-          journal_id: journalId
-        })
-      });
-      if (!response.ok) throw new Error('Entry update failed');
-      const updatedEntry = await response.json();
-      emit('success', updatedEntry);
-    } else {
-      // CREATE: POST
-      const response = await fetch(`/api/journals/${journalId}/entries`, {
-        method: 'POST', credentials: 'include', headers: authHeaders(),
-        body: JSON.stringify({ content: entryContent.value, journal_id: journalId })
-      });
-      if (!response.ok) throw new Error('Entry create failed');
-      const newEntry = await response.json();
-      const journal = journalStore.journals.find(j => j.id === journalId);
-      if (journal) {
-        if (!journal.entries) journal.entries = [];
-        journal.entries.unshift(newEntry);
+  
+  // If we have entry content, create the entry
+  if (entryContent.value.trim()) {
+    try {
+      if (isEditMode()) {
+        // EDIT: PUT
+        const response = await fetch(`/api/journals/${journalId}/entries/${props.entryToEdit.id}`, {
+          method: 'PUT', 
+          credentials: 'include', 
+          headers: authHeaders(),
+          body: JSON.stringify({
+            content: entryContent.value,
+            journal_id: journalId
+          })
+        });
+        if (!response.ok) throw new Error('Entry update failed');
+        const updatedEntry = await response.json();
+        emit('success', updatedEntry);
+      } else {
+        // CREATE: POST
+        const response = await fetch(`/api/journals/${journalId}/entries`, {
+          method: 'POST', 
+          credentials: 'include', 
+          headers: authHeaders(),
+          body: JSON.stringify({ content: entryContent.value })
+        });
+        if (!response.ok) throw new Error('Entry create failed');
+        const newEntry = await response.json();
+        const journal = journalStore.journals.find(j => j.id === journalId);
+        if (journal) {
+          if (!journal.entries) journal.entries = [];
+          journal.entries.unshift(newEntry);
+        }
+        journalStore.stopCreatingEntry();
       }
-      journalStore.stopCreatingEntry();
+    } catch (e) {
+      errors.value.content = isEditMode() ? 'Failed to update entry.' : 'Failed to create entry.';
     }
-  } catch (e) {
-    errors.value.content = isEditMode() ? 'Failed to update entry.' : 'Failed to create entry.';
   }
 }
 </script>
@@ -154,7 +214,7 @@ async function submit() {
     <textarea
       class="block w-full border rounded px-2 py-2 min-h-[240px]"
       v-model="entryContent"
-      placeholder="Write your journal entry..."
+      :placeholder="creatingNewJournal ? 'Write your first journal entry (optional)...' : 'Write your journal entry...'"
     ></textarea>
     <div v-if="errors.content" class="text-red-500 text-sm mt-1">{{ errors.content }}</div>
 

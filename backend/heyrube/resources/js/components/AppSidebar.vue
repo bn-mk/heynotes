@@ -2,10 +2,14 @@
 import JournalList from '@/components/JournalList.vue';
 import NavUser from '@/components/NavUser.vue';
 import TrashBin from '@/components/TrashBin.vue';
-import CreateJournalDialog from '@/components/CreateJournalDialog.vue';
+import { Button } from '@/components/ui/button';
+import { Plus } from 'lucide-vue-next';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Link } from '@inertiajs/vue3';
+import { useJournalStore } from '@/stores/journals';
 import AppLogo from './AppLogo.vue';
+
+const journalStore = useJournalStore();
 
 </script>
 
@@ -32,7 +36,13 @@ import AppLogo from './AppLogo.vue';
 
         <SidebarFooter>
             <div class="px-4 py-2">
-                <CreateJournalDialog />
+                <Button 
+                    @click="journalStore.startCreatingJournal()"
+                    class="w-full gap-2 cursor-pointer"
+                >
+                    <Plus class="h-4 w-4" />
+                    Create New Journal
+                </Button>
             </div>
             <NavUser />
         </SidebarFooter>

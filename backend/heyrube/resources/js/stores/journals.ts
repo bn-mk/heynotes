@@ -7,6 +7,7 @@ export const useJournalStore = defineStore('journal', {
     trashedJournals: [] as JournalListType[],
     selectedJournalId: null as string | null,
     creatingEntry: false,
+    creatingJournal: false,
     showTrash: false,
   }),
   getters: {
@@ -66,6 +67,11 @@ export const useJournalStore = defineStore('journal', {
     },
     stopCreatingEntry() {
       this.creatingEntry = false;
+      this.creatingJournal = false;
+    },
+    startCreatingJournal() {
+      this.creatingJournal = true;
+      this.creatingEntry = true;
     },
 
     async deleteJournal(journalId: string) {

@@ -134,7 +134,10 @@ onMounted(() => {
 <template>
   <AppLayout>
     <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4 overflow-x-auto">
-      <CreateEntryForm v-if="journalStore.creatingEntry" />
+      <CreateEntryForm 
+        v-if="journalStore.creatingEntry" 
+        :create-new-journal="journalStore.creatingJournal"
+      />
       <CreateEntryForm
         v-else-if="editingEntry"
         :entry-to-edit="editingEntry"
