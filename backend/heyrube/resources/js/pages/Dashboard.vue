@@ -21,6 +21,16 @@ function renderMarkdown(content: string) {
   return md.render(content || '');
 }
 
+const getBorderColor = (index: number, total: number) => {
+  if (total <= 1) {
+    return 'border-blue-500';
+  }
+  const percent = index / (total - 1);
+  const r = Math.round(255 * percent);
+  const b = Math.round(255 * (1 - percent));
+  return `border-[rgb(${r},0,${b})]`;
+};
+
 const editingEntry = ref(null);
 const editingJournalId = ref<string | null>(null);
 const editingJournalTitle = ref('');
@@ -173,7 +183,7 @@ onMounted(() => {
             </Button>
           </div>
           <div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 items-start">
-          <Card v-for="entry in sortedEntries" :key="entry.id">
+          <Card v-for="(entry, index) in sortedEntries" :key="entry.id" :class="[getBorderColor(index, sortedEntries.length), 'border-2']">
 <div class="p-4 flex flex-col relative max-h-[33vh] overflow-hidden">
               <button
                 @click="entry.openMenu = !entry.openMenu"
