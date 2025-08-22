@@ -60,9 +60,13 @@ class JournalController extends Controller
         $validated = $request->validate([
             'content' => 'required|string',
         ]);
+        
+        // Get the highest display_order for this journal's entries
+        $maxOrder = $journal->entries()->max('display_order') ?? -1;
+        
         $entry = $journal->entries()->create([
             'content' => $validated['content'],
-            // Optionally add more fields like 'user_id' if your entries table needs it
+            'display_order' => $maxOrder + 1,
         ]);
         return response()->json($entry, 201);
     }
@@ -171,5 +175,28 @@ class JournalController extends Controller
         }
         
         return response()->json(['message' => 'Trash emptied successfully']);
+    }
+
+    // Reorder journal entries
+    public function reorderEntries(Request $request, Journal $journal)
+    {
+        // Check if the user owns this journal
+        if ($journal->user_id !== Auth::id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $validated = $request->validate([
+            'entries' => 'required|array',
+            'entries.*.id' => 'required|string',
+            'entries.*.display_order' => 'required|integer|min:0',
+        ]);
+
+        foreach ($validated['entries'] as $entryData) {
+            JournalEntry::where('_id', $entryData['id'])
+                ->where('journal_id', $journal->_id)
+                ->update(['display_order' => $entryData['display_order']]);
+        }
+
+        return response()->json(['message' => 'Entries reordered successfully']);
     }
 }

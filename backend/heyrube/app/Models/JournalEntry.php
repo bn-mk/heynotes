@@ -15,6 +15,7 @@ class JournalEntry extends Model
         'journal_id',
         'content',
         'mood',
+        'display_order',
         'created_at',
         'updated_at',
     ];

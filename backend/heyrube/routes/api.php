@@ -16,6 +16,7 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::delete('journals/{journal}', [JournalController::class, 'destroy']);
     Route::get('journals/{journal}/entries', [JournalController::class, 'entries']);
     Route::post('journals/{journal}/entries', [JournalController::class, 'storeEntry']);
+    Route::post('journals/{journal}/entries/reorder', [JournalController::class, 'reorderEntries']);
     Route::delete('journals/{journal}/entries/{entry}', [JournalController::class, 'destroyEntry']);
     Route::put('journals/{journal}/entries/{entry}', [JournalController::class, 'updateEntry']);
     

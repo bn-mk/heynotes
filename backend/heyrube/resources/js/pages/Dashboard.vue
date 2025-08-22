@@ -23,21 +23,35 @@ function renderMarkdown(content: string) {
 
 const getBorderColor = (index: number, total: number) => {
   if (total <= 1) {
-    return 'border-blue-500';
+    return 'rgb(147, 197, 253)'; // pastel blue
   }
+  // Gradient from pastel blue to pastel pink/red based on recency
   const percent = index / (total - 1);
-  const r = Math.round(255 * percent);
-  const b = Math.round(255 * (1 - percent));
-  return `border-[rgb(${r},0,${b})]`;
+  
+  // Pastel colors with higher lightness and lower saturation
+  // Newest (index 0): pastel blue, Oldest: pastel pink/red
+  const r = Math.round(180 + (75 * percent));  // 180-255 range for softer reds
+  const g = Math.round(150 - (50 * percent));  // 150-100 range for mid tones
+  const b = Math.round(250 - (100 * percent)); // 250-150 range for blues
+  
+  return `rgb(${r}, ${g}, ${b})`;
 };
 
 const editingEntry = ref(null);
 const editingJournalId = ref<string | null>(null);
 const editingJournalTitle = ref('');
+const draggedEntry = ref(null);
+const draggedOverEntry = ref(null);
 
 const sortedEntries = computed(() => {
   const entries = journalStore.selectedJournal?.entries || [];
+  // First sort by display_order if it exists, then by created_at
   return entries.slice().sort((a, b) => {
+    // If both have display_order, use that
+    if (a.display_order !== undefined && b.display_order !== undefined) {
+      return a.display_order - b.display_order;
+    }
+    // Otherwise fall back to date sorting
     const da = new Date(a.created_at || 0);
     const db = new Date(b.created_at || 0);
     return db.getTime() - da.getTime();
@@ -123,6 +137,110 @@ async function handleDeleteEntry(entry: any) {
   entry.openMenu = false;
 }
 
+// Drag and Drop handlers
+function handleDragStart(entry: any, event: DragEvent) {
+  draggedEntry.value = entry;
+  event.dataTransfer!.effectAllowed = 'move';
+  // Add dragging class to the element
+  (event.target as HTMLElement).classList.add('opacity-50');
+}
+
+function handleDragEnd(event: DragEvent) {
+  // Remove dragging class
+  (event.target as HTMLElement).classList.remove('opacity-50');
+  draggedEntry.value = null;
+  draggedOverEntry.value = null;
+}
+
+function handleDragOver(event: DragEvent) {
+  if (event.preventDefault) {
+    event.preventDefault(); // Allows us to drop
+  }
+  event.dataTransfer!.dropEffect = 'move';
+  return false;
+}
+
+function handleDragEnter(entry: any, event: DragEvent) {
+  if (draggedEntry.value && entry.id !== draggedEntry.value.id) {
+    draggedOverEntry.value = entry;
+    (event.currentTarget as HTMLElement).classList.add('border-4', 'border-blue-400');
+  }
+}
+
+function handleDragLeave(event: DragEvent) {
+  (event.currentTarget as HTMLElement).classList.remove('border-4', 'border-blue-400');
+}
+
+async function handleDrop(targetEntry: any, event: DragEvent) {
+  if (event.stopPropagation) {
+    event.stopPropagation(); // stops some browsers from redirecting.
+  }
+  
+  (event.currentTarget as HTMLElement).classList.remove('border-4', 'border-blue-400');
+  
+  if (draggedEntry.value && targetEntry.id !== draggedEntry.value.id) {
+    const entries = sortedEntries.value;
+    const draggedIndex = entries.findIndex(e => e.id === draggedEntry.value.id);
+    const targetIndex = entries.findIndex(e => e.id === targetEntry.id);
+    
+    if (draggedIndex !== -1 && targetIndex !== -1) {
+      // Reorder the entries array
+      const [removed] = entries.splice(draggedIndex, 1);
+      entries.splice(targetIndex, 0, removed);
+      
+      // Update display_order for all entries
+      entries.forEach((entry, index) => {
+        entry.display_order = index;
+      });
+      
+      // Update the journal's entries in the store
+      const journal = journalStore.journals.find(j => j.id === journalStore.selectedJournalId);
+      if (journal) {
+        journal.entries = entries;
+      }
+      
+      // Persist the new order to the backend
+      await saveEntryOrder(entries);
+    }
+  }
+  
+  draggedEntry.value = null;
+  draggedOverEntry.value = null;
+  return false;
+}
+
+async function saveEntryOrder(entries: any[]) {
+  const getCookie = (name: string) => {
+    const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
+    return match ? decodeURIComponent(match[3]) : null;
+  };
+  const xsrf = getCookie('XSRF-TOKEN') ?? '';
+  
+  try {
+    const orderData = entries.map((entry, index) => ({
+      id: entry.id,
+      display_order: index
+    }));
+    
+    const response = await fetch(`/api/journals/${journalStore.selectedJournalId}/entries/reorder`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-XSRF-TOKEN': xsrf
+      },
+      body: JSON.stringify({ entries: orderData })
+    });
+    
+    if (!response.ok) {
+      console.error('Failed to save entry order');
+      // Optionally, revert the order in the UI
+    }
+  } catch (error) {
+    console.error('Error saving entry order:', error);
+  }
+}
+
 onMounted(() => {
   if (props.journals) {
     // Ensure all ids are strings (for Mongo compatibility)
@@ -183,7 +301,19 @@ onMounted(() => {
             </Button>
           </div>
           <div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 items-start">
-          <Card v-for="(entry, index) in sortedEntries" :key="entry.id" :class="[getBorderColor(index, sortedEntries.length), 'border-2']">
+          <Card 
+            v-for="(entry, index) in sortedEntries" 
+            :key="entry.id" 
+            class="border-2 transition-all cursor-move"
+            :style="{ borderColor: getBorderColor(index, sortedEntries.length) }"
+            draggable="true"
+            @dragstart="handleDragStart(entry, $event)"
+            @dragend="handleDragEnd($event)"
+            @dragover="handleDragOver($event)"
+            @dragenter="handleDragEnter(entry, $event)"
+            @dragleave="handleDragLeave($event)"
+            @drop="handleDrop(entry, $event)"
+          >
 <div class="p-4 flex flex-col relative max-h-[33vh] overflow-hidden">
               <button
                 @click="entry.openMenu = !entry.openMenu"
