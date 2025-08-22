@@ -183,6 +183,20 @@ class JournalController extends Controller
         
         return response()->json($trashedJournals);
     }
+    
+    // Get all trashed entries (not in trashed journals)
+    public function trashedEntries()
+    {
+        // Get entries that are trashed but belong to active (non-trashed) journals
+        $trashedEntries = JournalEntry::onlyTrashed()
+            ->whereHas('journal', function ($query) {
+                $query->where('user_id', Auth::id());
+            })
+            ->with('journal:_id,title')
+            ->get();
+        
+        return response()->json($trashedEntries);
+    }
 
     // Restore a soft-deleted journal and its entries
     public function restore($id)
@@ -225,6 +239,12 @@ class JournalController extends Controller
             $journal->forceDelete();
         }
         
+        // Also delete individual trashed entries (not in trashed journals)
+        $activeJournalIds = Journal::where('user_id', Auth::id())->pluck('_id');
+        JournalEntry::onlyTrashed()
+            ->whereIn('journal_id', $activeJournalIds)
+            ->forceDelete();
+        
         return response()->json(['message' => 'Trash emptied successfully']);
     }
 
@@ -249,5 +269,35 @@ class JournalController extends Controller
         }
 
         return response()->json(['message' => 'Entries reordered successfully']);
+    }
+    
+    // Restore a soft-deleted entry
+    public function restoreEntry($entryId)
+    {
+        $entry = JournalEntry::onlyTrashed()
+            ->where('_id', $entryId)
+            ->whereHas('journal', function ($query) {
+                $query->where('user_id', Auth::id());
+            })
+            ->firstOrFail();
+        
+        $entry->restore();
+        
+        return response()->json(['message' => 'Entry restored successfully', 'entry' => $entry->load('journal')]);
+    }
+    
+    // Permanently delete a soft-deleted entry
+    public function forceDestroyEntry($entryId)
+    {
+        $entry = JournalEntry::onlyTrashed()
+            ->where('_id', $entryId)
+            ->whereHas('journal', function ($query) {
+                $query->where('user_id', Auth::id());
+            })
+            ->firstOrFail();
+        
+        $entry->forceDelete();
+        
+        return response()->json(['message' => 'Entry permanently deleted']);
     }
 }

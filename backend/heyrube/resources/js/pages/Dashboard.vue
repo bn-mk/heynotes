@@ -106,35 +106,28 @@ function handleEditSuccess(updatedEntry) {
   editingEntry.value = null;
 }
 async function handleDeleteEntry(entry: any) {
-  if (confirm('Are you sure you want to delete this entry?')) {
-    const journalId = journalStore.selectedJournalId;
-    // Add XSRF-Token header for Laravel CSRF
-    const getCookie = (name: string) => {
-      const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
-      return match ? decodeURIComponent(match[3]) : null;
-    };
-    const xsrf = getCookie('XSRF-TOKEN') ?? '';
-    try {
-      const resp = await fetch(`/api/journals/${journalId}/entries/${entry.id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: { 'X-XSRF-TOKEN': xsrf },
-      });
-      if (resp.status === 204) {
-        // Remove entry client-side from Pinia store
-        const journal = journalStore.journals.find(j => j.id === journalId);
-        if (journal && journal.entries) {
-          const idx = journal.entries.findIndex(e => e.id === entry.id);
-          if (idx > -1) journal.entries.splice(idx, 1);
-        }
-      } else {
-        alert('Delete failed.');
-      }
-    } catch (e) {
-      alert('Request error during delete.');
+  const journalId = journalStore.selectedJournalId;
+  if (journalId) {
+    const success = await journalStore.deleteEntry(journalId, entry.id);
+    if (success) {
+      // Show a brief notification that the entry was moved to trash
+      showNotification('Entry moved to trash');
+    } else {
+      alert('Failed to delete entry.');
     }
   }
   entry.openMenu = false;
+}
+
+const notificationMessage = ref('');
+const showNotificationFlag = ref(false);
+
+function showNotification(message: string) {
+  notificationMessage.value = message;
+  showNotificationFlag.value = true;
+  setTimeout(() => {
+    showNotificationFlag.value = false;
+  }, 3000);
 }
 
 // Drag and Drop handlers
@@ -400,5 +393,22 @@ onMounted(() => {
         </div>
       </template>
     </div>
+    <!-- Notification Toast -->
+    <Transition
+      enter-active-class="transition ease-out duration-300"
+      enter-from-class="translate-y-2 opacity-0"
+      enter-to-class="translate-y-0 opacity-100"
+      leave-active-class="transition ease-in duration-200"
+      leave-from-class="translate-y-0 opacity-100"
+      leave-to-class="translate-y-2 opacity-0"
+    >
+      <div
+        v-if="showNotificationFlag"
+        class="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 z-50"
+      >
+        <Check class="w-4 h-4 text-green-400" />
+        {{ notificationMessage }}
+      </div>
+    </Transition>
   </AppLayout>
 </template>

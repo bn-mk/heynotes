@@ -5,6 +5,7 @@ export const useJournalStore = defineStore('journal', {
   state: () => ({
     journals: [] as JournalListType[],
     trashedJournals: [] as JournalListType[],
+    trashedEntries: [] as any[],
     selectedJournalId: null as string | null,
     creatingEntry: false,
     creatingJournal: false,
@@ -118,19 +119,33 @@ export const useJournalStore = defineStore('journal', {
       const xsrf = this.getCookie('XSRF-TOKEN') ?? '';
 
       try {
-        const response = await fetch('/api/trash/journals', {
+        // Fetch trashed journals
+        const journalsResponse = await fetch('/api/trash/journals', {
             headers: {
                 'X-XSRF-TOKEN': xsrf,
             },
         });
 
-        if (response.ok) {
-            this.trashedJournals = await response.json();
+        if (journalsResponse.ok) {
+            this.trashedJournals = await journalsResponse.json();
         } else {
             console.error('Failed to fetch trashed journals');
         }
+        
+        // Fetch trashed entries
+        const entriesResponse = await fetch('/api/trash/entries', {
+            headers: {
+                'X-XSRF-TOKEN': xsrf,
+            },
+        });
+
+        if (entriesResponse.ok) {
+            this.trashedEntries = await entriesResponse.json();
+        } else {
+            console.error('Failed to fetch trashed entries');
+        }
       } catch (error) {
-        console.error('Error fetching trashed journals:', error);
+        console.error('Error fetching trashed items:', error);
       }
     },
 
@@ -214,6 +229,88 @@ export const useJournalStore = defineStore('journal', {
     getCookie(name: string) {
         const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
         return match ? decodeURIComponent(match[3]) : null;
+    },
+    
+    async deleteEntry(journalId: string, entryId: string) {
+      const xsrf = this.getCookie('XSRF-TOKEN') ?? '';
+      
+      try {
+        const response = await fetch(`/api/journals/${journalId}/entries/${entryId}`, {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: { 'X-XSRF-TOKEN': xsrf },
+        });
+        
+        if (response.status === 204) {
+            // Remove entry client-side from Pinia store
+            const journal = this.journals.find(j => j.id === journalId);
+            if (journal && journal.entries) {
+                const idx = journal.entries.findIndex(e => e.id === entryId);
+                if (idx > -1) journal.entries.splice(idx, 1);
+            }
+            // Fetch updated trash to include the deleted entry
+            await this.fetchTrashed();
+            return true;
+        } else {
+            console.error('Failed to delete entry');
+            return false;
+        }
+      } catch (error) {
+        console.error('Error deleting entry:', error);
+        return false;
+      }
+    },
+    
+    async restoreEntry(entryId: string) {
+      const xsrf = this.getCookie('XSRF-TOKEN') ?? '';
+      
+      try {
+        const response = await fetch(`/api/trash/entries/${entryId}/restore`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-XSRF-TOKEN': xsrf,
+            },
+        });
+        
+        if (response.ok) {
+            const { entry } = await response.json();
+            // Remove from trashed entries
+            this.trashedEntries = this.trashedEntries.filter(e => e.id !== entryId);
+            // Add back to the journal's entries
+            const journal = this.journals.find(j => j.id === entry.journal_id);
+            if (journal) {
+                if (!journal.entries) journal.entries = [];
+                journal.entries.push(entry);
+            }
+        } else {
+            console.error('Failed to restore entry');
+        }
+      } catch (error) {
+        console.error('Error restoring entry:', error);
+      }
+    },
+    
+    async forceDeleteEntry(entryId: string) {
+      const xsrf = this.getCookie('XSRF-TOKEN') ?? '';
+      
+      try {
+        const response = await fetch(`/api/trash/entries/${entryId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-XSRF-TOKEN': xsrf,
+            },
+        });
+        
+        if (response.ok) {
+            this.trashedEntries = this.trashedEntries.filter(e => e.id !== entryId);
+        } else {
+            console.error('Failed to permanently delete entry');
+        }
+      } catch (error) {
+        console.error('Error permanently deleting entry:', error);
+      }
     },
   },
 });
