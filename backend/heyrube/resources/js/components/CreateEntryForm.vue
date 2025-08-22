@@ -22,6 +22,23 @@ const errors = ref<{ content?: string, title?: string }>({});
 const cardType = ref<'text' | 'checkbox'>('text');
 const checkboxItems = ref<Array<{ text: string; checked: boolean }>>([]);
 const newCheckboxItem = ref('');
+const selectedMood = ref<string>('');
+
+// Mood options with emojis
+const moods = [
+  { emoji: '😊', label: 'Happy', value: 'happy' },
+  { emoji: '😔', label: 'Sad', value: 'sad' },
+  { emoji: '😴', label: 'Tired', value: 'tired' },
+  { emoji: '😡', label: 'Angry', value: 'angry' },
+  { emoji: '😰', label: 'Anxious', value: 'anxious' },
+  { emoji: '🤗', label: 'Grateful', value: 'grateful' },
+  { emoji: '😌', label: 'Calm', value: 'calm' },
+  { emoji: '🤔', label: 'Thoughtful', value: 'thoughtful' },
+  { emoji: '😎', label: 'Confident', value: 'confident' },
+  { emoji: '😅', label: 'Stressed', value: 'stressed' },
+  { emoji: '🥰', label: 'Loved', value: 'loved' },
+  { emoji: '😐', label: 'Neutral', value: 'neutral' },
+];
 
 // MARKDOWN
 const md = new MarkdownIt();
@@ -33,6 +50,7 @@ function defaultPrefill() {
   if (props.entryToEdit) {
     selectedJournalId.value = props.entryToEdit.journal_id || journalStore.selectedJournalId || '';
     cardType.value = props.entryToEdit.card_type || 'text';
+    selectedMood.value = props.entryToEdit.mood || '';
     if (props.entryToEdit.card_type === 'checkbox' && props.entryToEdit.checkbox_items) {
       checkboxItems.value = [...props.entryToEdit.checkbox_items];
     } else {
@@ -167,7 +185,8 @@ async function submit() {
     try {
       const entryPayload: any = {
         card_type: cardType.value,
-        journal_id: journalId
+        journal_id: journalId,
+        mood: selectedMood.value || null
       };
       
       if (cardType.value === 'text') {
@@ -190,7 +209,8 @@ async function submit() {
       } else {
         // CREATE: POST
         const createPayload: any = {
-          card_type: cardType.value
+          card_type: cardType.value,
+          mood: selectedMood.value || null
         };
         
         if (cardType.value === 'text') {
@@ -289,6 +309,31 @@ function toggleCheckbox(index: number) {
       >
         Checklist
       </button>
+    </div>
+    
+    <!-- Mood Selector -->
+    <div class="mb-4">
+      <label class="block text-sm font-medium mb-2">How are you feeling?</label>
+      <div class="flex flex-wrap gap-2">
+        <button
+          v-for="mood in moods"
+          :key="mood.value"
+          type="button"
+          @click="selectedMood = selectedMood === mood.value ? '' : mood.value"
+          :class="[
+            'px-3 py-2 rounded-lg border-2 transition-all transform hover:scale-105',
+            selectedMood === mood.value 
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
+              : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+          ]"
+          :title="mood.label"
+        >
+          <span class="text-2xl">{{ mood.emoji }}</span>
+        </button>
+      </div>
+      <div v-if="selectedMood" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+        Mood: {{ moods.find(m => m.value === selectedMood)?.label }}
+      </div>
     </div>
     
     <!-- Text Entry Content -->

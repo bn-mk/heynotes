@@ -63,6 +63,7 @@ class JournalController extends Controller
             'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
             'checkbox_items.*.text' => 'required_with:checkbox_items|string',
             'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',
+            'mood' => 'nullable|string|in:happy,sad,tired,angry,anxious,grateful,calm,thoughtful,confident,stressed,loved,neutral',
         ]);
         
         // Get the highest display_order for this journal's entries
@@ -71,6 +72,7 @@ class JournalController extends Controller
         $entryData = [
             'display_order' => $maxOrder + 1,
             'card_type' => $validated['card_type'] ?? 'text',
+            'mood' => $validated['mood'] ?? null,
         ];
         
         if ($validated['card_type'] === 'text') {
@@ -137,6 +139,7 @@ class JournalController extends Controller
             'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
             'checkbox_items.*.text' => 'required_with:checkbox_items|string',
             'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',
+            'mood' => 'nullable|string|in:happy,sad,tired,angry,anxious,grateful,calm,thoughtful,confident,stressed,loved,neutral',
         ]);
         
         $updateData = [
@@ -146,6 +149,11 @@ class JournalController extends Controller
         // Handle card type update
         if (isset($validated['card_type'])) {
             $updateData['card_type'] = $validated['card_type'];
+        }
+        
+        // Handle mood update
+        if (array_key_exists('mood', $validated)) {
+            $updateData['mood'] = $validated['mood'];
         }
         
         // Update based on card type

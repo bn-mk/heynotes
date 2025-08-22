@@ -215,6 +215,24 @@ function getChecklistProgress(items: any[]): string {
   return `${checked}/${items.length} completed`;
 }
 
+function getMoodEmoji(mood: string): string {
+  const moodMap: { [key: string]: string } = {
+    'happy': '😊',
+    'sad': '😔',
+    'tired': '😴',
+    'angry': '😡',
+    'anxious': '😰',
+    'grateful': '🤗',
+    'calm': '😌',
+    'thoughtful': '🤔',
+    'confident': '😎',
+    'stressed': '😅',
+    'loved': '🥰',
+    'neutral': '😐',
+  };
+  return moodMap[mood] || '';
+}
+
 async function saveEntryOrder(entries: any[]) {
   const getCookie = (name: string) => {
     const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
@@ -321,6 +339,11 @@ onMounted(() => {
             @drop="handleDrop(entry, $event)"
           >
 <div class="p-4 flex flex-col relative max-h-[33vh] overflow-hidden">
+              <!-- Mood Emoji Display -->
+              <div v-if="entry.mood" class="absolute top-2 left-2" :title="entry.mood">
+                <span class="text-xl">{{ getMoodEmoji(entry.mood) }}</span>
+              </div>
+              
               <button
                 @click="entry.openMenu = !entry.openMenu"
                 class="absolute top-2 right-2 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-zinc-700 cursor-pointer"
@@ -340,12 +363,12 @@ onMounted(() => {
               </div>
               
               <!-- Text Card Content -->
-              <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-pre-line mb-2 pr-8">
+              <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-pre-line mb-2 pr-8" :class="{ 'pl-8': entry.mood }">
                 <div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderMarkdown(entry.content)"></div>
               </div>
               
               <!-- Checkbox Card Content -->
-              <div v-else-if="entry.card_type === 'checkbox'" class="pr-8">
+              <div v-else-if="entry.card_type === 'checkbox'" class="pr-8" :class="{ 'pl-8': entry.mood }">
                 <div class="space-y-1">
                   <div 
                     v-for="(item, idx) in (entry.checkbox_items || [])"
