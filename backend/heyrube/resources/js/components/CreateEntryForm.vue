@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useJournalStore } from '@/stores/journals';
 import MarkdownIt from 'markdown-it';
+import { Plus, X, Check } from 'lucide-vue-next';
 
 // PROPS & STORE
 const props = defineProps({ 
@@ -18,6 +19,9 @@ const selectedJournalId = ref(props.createNewJournal ? 'new' : journalStore.sele
 const entryContent = ref('');
 const newJournalTitle = ref('');
 const errors = ref<{ content?: string, title?: string }>({});
+const cardType = ref<'text' | 'checkbox'>('text');
+const checkboxItems = ref<Array<{ text: string; checked: boolean }>>([]);
+const newCheckboxItem = ref('');
 
 // MARKDOWN
 const md = new MarkdownIt();
@@ -28,7 +32,12 @@ defaultPrefill();
 function defaultPrefill() {
   if (props.entryToEdit) {
     selectedJournalId.value = props.entryToEdit.journal_id || journalStore.selectedJournalId || '';
-    entryContent.value = props.entryToEdit.content || '';
+    cardType.value = props.entryToEdit.card_type || 'text';
+    if (props.entryToEdit.card_type === 'checkbox' && props.entryToEdit.checkbox_items) {
+      checkboxItems.value = [...props.entryToEdit.checkbox_items];
+    } else {
+      entryContent.value = props.entryToEdit.content || '';
+    }
   } else if (props.createNewJournal) {
     creatingNewJournal.value = true;
     selectedJournalId.value = 'new';
@@ -62,9 +71,17 @@ const formTitle = computed(() => {
 });
 const buttonLabel = computed(() => {
   if (isEditMode()) return 'Save Changes';
-  if (creatingNewJournal.value && !entryContent.value.trim()) return 'Create Journal';
+  if (creatingNewJournal.value && !hasContent()) return 'Create Journal';
   return 'Save Entry';
 });
+
+function hasContent(): boolean {
+  if (cardType.value === 'text') {
+    return entryContent.value.trim().length > 0;
+  } else {
+    return checkboxItems.value.length > 0;
+  }
+}
 const discardLabel = computed(() => isEditMode() ? 'Cancel' : 'Discard');
 
 // FORM ACTIONS
@@ -128,7 +145,7 @@ async function submit() {
       });
       
       // If no entry content, just select the new journal and exit
-      if (!entryContent.value.trim()) {
+      if (!hasContent()) {
         journalStore.selectJournal(journalId);
         journalStore.stopCreatingEntry();
         return;
@@ -140,35 +157,53 @@ async function submit() {
   }
   
   // Only require entry content if not creating a new journal or if content exists
-  if (!creatingNewJournal.value && !entryContent.value.trim()) {
-    errors.value.content = 'Entry content is required.';
+  if (!creatingNewJournal.value && !hasContent()) {
+    errors.value.content = cardType.value === 'checkbox' ? 'At least one checklist item is required.' : 'Entry content is required.';
     return;
   }
   
   // If we have entry content, create the entry
-  if (entryContent.value.trim()) {
+  if (hasContent()) {
     try {
+      const entryPayload: any = {
+        card_type: cardType.value,
+        journal_id: journalId
+      };
+      
+      if (cardType.value === 'text') {
+        entryPayload.content = entryContent.value;
+      } else if (cardType.value === 'checkbox') {
+        entryPayload.checkbox_items = checkboxItems.value;
+      }
+      
       if (isEditMode()) {
         // EDIT: PUT
         const response = await fetch(`/api/journals/${journalId}/entries/${props.entryToEdit.id}`, {
           method: 'PUT', 
           credentials: 'include', 
           headers: authHeaders(),
-          body: JSON.stringify({
-            content: entryContent.value,
-            journal_id: journalId
-          })
+          body: JSON.stringify(entryPayload)
         });
         if (!response.ok) throw new Error('Entry update failed');
         const updatedEntry = await response.json();
         emit('success', updatedEntry);
       } else {
         // CREATE: POST
+        const createPayload: any = {
+          card_type: cardType.value
+        };
+        
+        if (cardType.value === 'text') {
+          createPayload.content = entryContent.value;
+        } else if (cardType.value === 'checkbox') {
+          createPayload.checkbox_items = checkboxItems.value;
+        }
+        
         const response = await fetch(`/api/journals/${journalId}/entries`, {
           method: 'POST', 
           credentials: 'include', 
           headers: authHeaders(),
-          body: JSON.stringify({ content: entryContent.value })
+          body: JSON.stringify(createPayload)
         });
         if (!response.ok) throw new Error('Entry create failed');
         const newEntry = await response.json();
@@ -183,6 +218,22 @@ async function submit() {
       errors.value.content = isEditMode() ? 'Failed to update entry.' : 'Failed to create entry.';
     }
   }
+}
+
+// Checkbox functions
+function addCheckboxItem() {
+  if (newCheckboxItem.value.trim()) {
+    checkboxItems.value.push({ text: newCheckboxItem.value.trim(), checked: false });
+    newCheckboxItem.value = '';
+  }
+}
+
+function removeCheckboxItem(index: number) {
+  checkboxItems.value.splice(index, 1);
+}
+
+function toggleCheckbox(index: number) {
+  checkboxItems.value[index].checked = !checkboxItems.value[index].checked;
 }
 </script>
 <template>
@@ -211,21 +262,111 @@ async function submit() {
       />
       <div v-if="errors.title" class="text-red-500 text-sm mt-1">{{ errors.title }}</div>
     </div>
-    <textarea
-      class="block w-full border rounded px-2 py-2 min-h-[240px]"
-      v-model="entryContent"
-      :placeholder="creatingNewJournal ? 'Write your first journal entry (optional)...' : 'Write your journal entry...'"
-    ></textarea>
+    
+    <!-- Card Type Selection -->
+    <div class="flex gap-2 mb-4">
+      <button
+        type="button"
+        @click="cardType = 'text'"
+        :class="[
+          'px-4 py-2 rounded transition-colors',
+          cardType === 'text' 
+            ? 'bg-blue-600 text-white' 
+            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+        ]"
+      >
+        Text Entry
+      </button>
+      <button
+        type="button"
+        @click="cardType = 'checkbox'"
+        :class="[
+          'px-4 py-2 rounded transition-colors',
+          cardType === 'checkbox' 
+            ? 'bg-blue-600 text-white' 
+            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+        ]"
+      >
+        Checklist
+      </button>
+    </div>
+    
+    <!-- Text Entry Content -->
+    <div v-if="cardType === 'text'">
+      <textarea
+        class="block w-full border rounded px-2 py-2 min-h-[240px]"
+        v-model="entryContent"
+        :placeholder="creatingNewJournal ? 'Write your first journal entry (optional)...' : 'Write your journal entry...'"
+      ></textarea>
+      
+      <div class="mt-6 bg-neutral-900/80 rounded-lg shadow p-3">
+        <label class="block font-semibold mb-1 text-sm text-gray-400 dark:text-gray-300">Live Markdown Preview:</label>
+        <div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderedMarkdown"></div>
+      </div>
+    </div>
+    
+    <!-- Checkbox Entry Content -->
+    <div v-else-if="cardType === 'checkbox'">
+      <div class="mb-4">
+        <div class="flex gap-2">
+          <input
+            v-model="newCheckboxItem"
+            @keyup.enter="addCheckboxItem"
+            type="text"
+            placeholder="Add a checklist item..."
+            class="flex-1 border rounded px-2 py-1"
+          />
+          <button
+            type="button"
+            @click="addCheckboxItem"
+            class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+          >
+            <Plus class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      
+      <div class="space-y-2 max-h-[300px] overflow-y-auto">
+        <div
+          v-for="(item, index) in checkboxItems"
+          :key="index"
+          class="flex items-center gap-2 p-2 bg-gray-100 dark:bg-gray-800 rounded"
+        >
+          <button
+            type="button"
+            @click="toggleCheckbox(index)"
+            class="flex-shrink-0 w-5 h-5 border-2 rounded flex items-center justify-center transition-colors"
+            :class="item.checked 
+              ? 'bg-blue-600 border-blue-600' 
+              : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600'"
+          >
+            <Check v-if="item.checked" class="w-3 h-3 text-white" />
+          </button>
+          <span 
+            :class="{ 'line-through text-gray-500': item.checked }"
+            class="flex-1"
+          >
+            {{ item.text }}
+          </span>
+          <button
+            type="button"
+            @click="removeCheckboxItem(index)"
+            class="text-red-500 hover:text-red-700 transition-colors"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <div v-if="checkboxItems.length === 0" class="text-gray-500 text-center py-4">
+          No checklist items yet. Add one above!
+        </div>
+      </div>
+    </div>
+    
     <div v-if="errors.content" class="text-red-500 text-sm mt-1">{{ errors.content }}</div>
 
-    <div class="mt-6 bg-neutral-900/80 rounded-lg shadow p-3">
-      <label class="block font-semibold mb-1 text-sm text-gray-400 dark:text-gray-300">Live Markdown Preview:</label>
-      <div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderedMarkdown"></div>
-    </div>
-
     <div class="flex gap-2 mt-4 justify-end">
-      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
-      <button type="button" @click="cancel" class="px-4 py-2 rounded border border-gray-400">Discard</button>
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">{{ buttonLabel }}</button>
+      <button type="button" @click="cancel" class="px-4 py-2 rounded border border-gray-400">{{ discardLabel }}</button>
     </div>
   </form>
 </template>

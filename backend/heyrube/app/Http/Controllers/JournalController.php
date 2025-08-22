@@ -58,17 +58,38 @@ class JournalController extends Controller
     public function storeEntry(Request $request, Journal $journal)
     {
         $validated = $request->validate([
-            'content' => 'required|string',
+            'content' => 'required_if:card_type,text|nullable|string',
+            'card_type' => 'required|in:text,checkbox',
+            'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
+            'checkbox_items.*.text' => 'required_with:checkbox_items|string',
+            'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',
         ]);
         
         // Get the highest display_order for this journal's entries
         $maxOrder = $journal->entries()->max('display_order') ?? -1;
         
-        $entry = $journal->entries()->create([
-            'content' => $validated['content'],
+        $entryData = [
             'display_order' => $maxOrder + 1,
-        ]);
+            'card_type' => $validated['card_type'] ?? 'text',
+        ];
+        
+        if ($validated['card_type'] === 'text') {
+            $entryData['content'] = $validated['content'];
+        } else if ($validated['card_type'] === 'checkbox') {
+            $entryData['checkbox_items'] = $validated['checkbox_items'] ?? [];
+            // Set content as a summary of checkbox items for display
+            $entryData['content'] = $this->generateCheckboxSummary($validated['checkbox_items'] ?? []);
+        }
+        
+        $entry = $journal->entries()->create($entryData);
         return response()->json($entry, 201);
+    }
+    
+    private function generateCheckboxSummary($items)
+    {
+        if (empty($items)) return 'Checklist';
+        $checked = array_filter($items, fn($item) => $item['checked'] ?? false);
+        return count($checked) . '/' . count($items) . ' completed';
     }
 
     // Update a specific journal (title/tags)
@@ -110,13 +131,35 @@ class JournalController extends Controller
     public function updateEntry(Request $request, Journal $journal, JournalEntry $entry)
     {
         $validated = $request->validate([
-            'content' => 'required|string',
-            'journal_id' => 'sometimes|exists:journals,id'
+            'content' => 'required_if:card_type,text|nullable|string',
+            'journal_id' => 'sometimes|exists:journals,id',
+            'card_type' => 'sometimes|in:text,checkbox',
+            'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
+            'checkbox_items.*.text' => 'required_with:checkbox_items|string',
+            'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',
         ]);
-        $entry->update([
-            'content' => $validated['content'],
+        
+        $updateData = [
             'journal_id' => $validated['journal_id'] ?? $entry->journal_id
-        ]);
+        ];
+        
+        // Handle card type update
+        if (isset($validated['card_type'])) {
+            $updateData['card_type'] = $validated['card_type'];
+        }
+        
+        // Update based on card type
+        $cardType = $validated['card_type'] ?? $entry->card_type ?? 'text';
+        
+        if ($cardType === 'text') {
+            $updateData['content'] = $validated['content'];
+            $updateData['checkbox_items'] = null;
+        } else if ($cardType === 'checkbox') {
+            $updateData['checkbox_items'] = $validated['checkbox_items'] ?? [];
+            $updateData['content'] = $this->generateCheckboxSummary($validated['checkbox_items'] ?? []);
+        }
+        
+        $entry->update($updateData);
         return response()->json($entry, 200);
     }
 

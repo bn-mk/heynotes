@@ -16,8 +16,14 @@ class JournalEntry extends Model
         'content',
         'mood',
         'display_order',
+        'card_type',
+        'checkbox_items',
         'created_at',
         'updated_at',
+    ];
+    
+    protected $casts = [
+        'checkbox_items' => 'array',
     ];
 
     protected $dates = ['deleted_at'];

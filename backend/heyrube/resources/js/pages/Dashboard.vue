@@ -3,7 +3,7 @@ import { ref, nextTick, computed } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import Card from '@/components/ui/card/Card.vue';
 import { Button } from '@/components/ui/button';
-import { Plus, PenSquare } from 'lucide-vue-next';
+import { Plus, PenSquare, Check, Square, CheckSquare } from 'lucide-vue-next';
 import { onMounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
@@ -209,6 +209,12 @@ async function handleDrop(targetEntry: any, event: DragEvent) {
   return false;
 }
 
+function getChecklistProgress(items: any[]): string {
+  if (!items || items.length === 0) return '0/0 completed';
+  const checked = items.filter(item => item.checked).length;
+  return `${checked}/${items.length} completed`;
+}
+
 async function saveEntryOrder(entries: any[]) {
   const getCookie = (name: string) => {
     const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
@@ -332,8 +338,36 @@ onMounted(() => {
                 <button @click="handleEditEntry(entry)" class="cursor-pointer px-2 py-1 text-sm text-left hover:bg-blue-100 dark:hover:bg-zinc-700 rounded">Edit</button>
                 <button @click="handleDeleteEntry(entry)" class="cursor-pointer px-2 py-1 text-sm text-left hover:bg-red-100 dark:hover:bg-red-700 rounded text-red-600 dark:text-red-300">Delete</button>
               </div>
-<div class="text-sm text-white-800 whitespace-pre-line mb-2 pr-8">
-<div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderMarkdown(entry.content)"></div>
+              
+              <!-- Text Card Content -->
+              <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-pre-line mb-2 pr-8">
+                <div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderMarkdown(entry.content)"></div>
+              </div>
+              
+              <!-- Checkbox Card Content -->
+              <div v-else-if="entry.card_type === 'checkbox'" class="pr-8">
+                <div class="space-y-1">
+                  <div 
+                    v-for="(item, idx) in (entry.checkbox_items || [])"
+                    :key="idx"
+                    class="flex items-center gap-2 text-sm"
+                  >
+                    <CheckSquare v-if="item.checked" class="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <Square v-else class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <span :class="{ 'line-through text-gray-500': item.checked }">
+                      {{ item.text }}
+                    </span>
+                  </div>
+                  <div v-if="!entry.checkbox_items || entry.checkbox_items.length === 0" class="text-gray-500 text-sm">
+                    Empty checklist
+                  </div>
+                </div>
+                <!-- Show progress -->
+                <div class="mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <div class="text-xs text-gray-500">
+                    {{ getChecklistProgress(entry.checkbox_items) }}
+                  </div>
+                </div>
               </div>
               <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
             </div>
