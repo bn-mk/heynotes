@@ -351,61 +351,106 @@ class JournalController extends Controller
     // Restore a soft-deleted entry
     public function restoreEntry($entryId)
     {
-        // Restrict to entries belonging to the current user's active journals (handle string/ObjectId)
-        // Derive active journal ids using direct query on journals collection
-        $activeJournalIds = Journal::where('user_id', Auth::id())->pluck('_id');
-        $idsNormalized = collect($activeJournalIds)
-            ->flatMap(function ($id) {
-                $asString = (string) $id;
-                try {
-                    $asObject = new ObjectId($asString);
-                    return [$id, $asString, $asObject];
-                } catch (\Throwable $e) {
-                    return [$id, $asString];
-                }
-            })
-            ->unique(strict: false)
-            ->values()
-            ->all();
+        // Current user id as string
+        $currentUserId = (string) (Auth::user()->_id ?? Auth::id());
+
+        // Active and trashed journal ids for current user
+        $activeJournalIds = Journal::where('user_id', $currentUserId)->pluck('_id');
+        $trashedJournalIds = Journal::onlyTrashed()->where('user_id', $currentUserId)->pluck('_id');
+
+        $normalize = function ($ids) {
+            return collect($ids)
+                ->flatMap(function ($id) {
+                    $asString = (string) $id;
+                    try {
+                        $asObject = new ObjectId($asString);
+                        return [$id, $asString, $asObject];
+                    } catch (\Throwable $e) {
+                        return [$id, $asString];
+                    }
+                })
+                ->unique(strict: false)
+                ->values()
+                ->all();
+        };
+
+        $activeIdsNormalized = $normalize($activeJournalIds);
+        $trashedIdsNormalized = $normalize($trashedJournalIds);
+
+        // Accept both raw string and ObjectId for entry _id
+        $entryIdCandidates = [(string)$entryId];
+        try { $entryIdCandidates[] = new ObjectId((string)$entryId); } catch (\Throwable $e) {}
 
         $entry = JournalEntry::withTrashed()
-            ->where('_id', $entryId)
             ->whereNotNull('deleted_at')
-            ->whereIn('journal_id', $idsNormalized)
+            ->whereIn('_id', $entryIdCandidates)
+            ->where(function ($q) use ($activeIdsNormalized, $currentUserId) {
+                $q->whereIn('journal_id', $activeIdsNormalized)
+                  ->orWhere('user_id', $currentUserId);
+            })
+            ->whereNotIn('journal_id', $trashedIdsNormalized)
             ->firstOrFail();
         
         $entry->restore();
         
+        Log::info('entry_restored', [
+            'entry_id' => (string)($entry->_id ?? ''),
+            'journal_id' => (string)($entry->journal_id ?? ''),
+        ]);
+
         return response()->json(['message' => 'Entry restored successfully', 'entry' => $entry->load('journal')]);
     }
     
     // Permanently delete a soft-deleted entry
     public function forceDestroyEntry($entryId)
     {
-        // Restrict to entries belonging to the current user's active journals (handle string/ObjectId)
-        // Derive active journal ids using direct query on journals collection
-        $activeJournalIds = Journal::where('user_id', Auth::id())->pluck('_id');
-        $idsNormalized = collect($activeJournalIds)
-            ->flatMap(function ($id) {
-                $asString = (string) $id;
-                try {
-                    $asObject = new ObjectId($asString);
-                    return [$id, $asString, $asObject];
-                } catch (\Throwable $e) {
-                    return [$id, $asString];
-                }
-            })
-            ->unique(strict: false)
-            ->values()
-            ->all();
+        // Current user id as string
+        $currentUserId = (string) (Auth::user()->_id ?? Auth::id());
 
-        $entry = JournalEntry::onlyTrashed()
-            ->where('_id', $entryId)
-            ->whereIn('journal_id', $idsNormalized)
+        // Active and trashed journal ids for current user
+        $activeJournalIds = Journal::where('user_id', $currentUserId)->pluck('_id');
+        $trashedJournalIds = Journal::onlyTrashed()->where('user_id', $currentUserId)->pluck('_id');
+
+        $normalize = function ($ids) {
+            return collect($ids)
+                ->flatMap(function ($id) {
+                    $asString = (string) $id;
+                    try {
+                        $asObject = new ObjectId($asString);
+                        return [$id, $asString, $asObject];
+                    } catch (\Throwable $e) {
+                        return [$id, $asString];
+                    }
+                })
+                ->unique(strict: false)
+                ->values()
+                ->all();
+        };
+
+        $activeIdsNormalized = $normalize($activeJournalIds);
+        $trashedIdsNormalized = $normalize($trashedJournalIds);
+
+        // Accept both raw string and ObjectId for entry _id
+        $entryIdCandidates = [(string)$entryId];
+        try { $entryIdCandidates[] = new ObjectId((string)$entryId); } catch (\Throwable $e) {}
+
+        $entry = JournalEntry::withTrashed()
+            ->whereNotNull('deleted_at')
+            ->whereIn('_id', $entryIdCandidates)
+            ->where(function ($q) use ($activeIdsNormalized, $currentUserId) {
+                $q->whereIn('journal_id', $activeIdsNormalized)
+                  ->orWhere('user_id', $currentUserId);
+            })
+            ->whereNotIn('journal_id', $trashedIdsNormalized)
             ->firstOrFail();
         
         $entry->forceDelete();
         
+        Log::info('entry_force_deleted', [
+            'entry_id' => (string)($entry->_id ?? ''),
+            'journal_id' => (string)($entry->journal_id ?? ''),
+        ]);
+
         return response()->json(['message' => 'Entry permanently deleted']);
     }
 }
