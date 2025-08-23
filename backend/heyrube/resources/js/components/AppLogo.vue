@@ -10,6 +10,6 @@
         </svg>
     </div>
     <div class="ml-1 grid flex-1 text-left text-sm">
-        <span class="mb-0.5 truncate leading-tight font-semibold">Hey! Rube!</span>
+        <span class="mb-0.5 font-semibold font-serif text-4xl">Hey! Rube!</span>
     </div>
 </template>
