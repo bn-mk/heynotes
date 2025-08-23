@@ -3,6 +3,7 @@ import { ref, nextTick, computed } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import Card from '@/components/ui/card/Card.vue';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Plus, PenSquare, Check, Square, CheckSquare } from 'lucide-vue-next';
 import { onMounted } from 'vue';
 import { JournalListType } from '@/types';
@@ -40,6 +41,14 @@ const getBorderColor = (index: number, total: number) => {
 const editingEntry = ref(null);
 const editingJournalId = ref<string | null>(null);
 const editingJournalTitle = ref('');
+const tagsDialogOpen = ref(false);
+const tagSelection = ref<string[]>([]);
+const tagFilter = ref('');
+
+function openTagsDialog() {
+  tagsDialogOpen.value = true;
+  tagSelection.value = [...(journalStore.selectedJournal?.tags || [])];
+}
 const draggedEntry = ref(null);
 const draggedOverEntry = ref(null);
 
@@ -273,12 +282,14 @@ onMounted(() => {
       }
     });
   }
+  // Preload tags for tag manager
+  journalStore.fetchTags();
 });
 </script>
 
 <template>
   <AppLayout>
-    <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4 overflow-x-auto">
+    <div class="pattern-bg flex h-full flex-1 flex-col gap-4 rounded-xl p-4 overflow-x-auto">
       <CreateEntryForm 
         v-if="journalStore.creatingEntry" 
         :create-new-journal="journalStore.creatingJournal"
@@ -293,32 +304,73 @@ onMounted(() => {
         <div v-if="journalStore.selectedJournal">
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center">
-              <h1 v-if="editingJournalId !== journalStore.selectedJournal.id" class="text-2xl font-bold">
-                {{ journalStore.selectedJournal.title }}
-              </h1>
-              <div v-else class="flex items-center">
-                <input v-model="editingJournalTitle" @keyup.enter="handleSaveTitle" @keyup.esc="handleCancelEdit" class="text-2xl font-bold" />
-                <button @click="handleSaveTitle" class="ml-2 px-2 py-1 bg-green-500 text-white rounded">Save</button>
-                <button @click="handleCancelEdit" class="ml-2 px-2 py-1 bg-red-500 text-white rounded">Cancel</button>
-              </div>
-              <button @click="handleEditTitle" v-if="editingJournalId !== journalStore.selectedJournal.id" class="ml-2">
-                <!-- Pencil Icon -->
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
-                  <path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" />
-                </svg>
-              </button>
+              <template v-if="editingJournalId !== journalStore.selectedJournal.id">
+                <h1 class="text-2xl font-bold">
+                  {{ journalStore.selectedJournal.title }}
+                </h1>
+                <div v-if="journalStore.selectedJournal?.tags?.length" class="flex flex-wrap items-center gap-2 ml-3">
+                  <span v-for="t in journalStore.selectedJournal.tags" :key="t" class="px-2 py-0.5 rounded-full text-xs bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200">{{ t }}</span>
+                </div>
+                <button @click="handleEditTitle" class="ml-2">
+                  <!-- Pencil Icon -->
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
+                    <path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" />
+                  </svg>
+                </button>
+              </template>
+              <template v-else>
+                <div class="flex items-center">
+                  <input v-model="editingJournalTitle" @keyup.enter="handleSaveTitle" @keyup.esc="handleCancelEdit" class="text-2xl font-bold" />
+                  <button @click="handleSaveTitle" class="ml-2 px-2 py-1 bg-green-500 text-white rounded">Save</button>
+                  <button @click="handleCancelEdit" class="ml-2 px-2 py-1 bg-red-500 text-white rounded">Cancel</button>
+                </div>
+              </template>
             </div>
-            <Button 
-              @click="journalStore.startCreatingEntry()"
-              class="gap-2 cursor-pointer"
-            >
-              <PenSquare class="h-4 w-4" />
-              New Entry
-            </Button>
+            <div class="flex items-center gap-2">
+              <Button 
+                variant="outline"
+                size="sm"
+                class="cursor-pointer"
+                @click="openTagsDialog"
+              >
+                Manage Tags
+              </Button>
+              <Button 
+                @click="journalStore.startCreatingEntry()"
+                class="gap-2 cursor-pointer"
+              >
+                <PenSquare class="h-4 w-4" />
+                New Entry
+              </Button>
+            </div>
           </div>
+
+          <!-- Manage Tags Dialog -->
+          <Dialog v-model:open="tagsDialogOpen">
+            <DialogContent class="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Manage Tags</DialogTitle>
+                <DialogDescription>Select tags to apply to this journal.</DialogDescription>
+              </DialogHeader>
+              <div class="space-y-3">
+                <input type="text" v-model="tagFilter" placeholder="Filter tags..." class="w-full px-2 py-1 border rounded" />
+                <div class="max-h-64 overflow-y-auto space-y-1">
+                  <label v-for="name in journalStore.allTags.filter(t => t.toLowerCase().includes(tagFilter.toLowerCase()))" :key="name" class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" :value="name" v-model="tagSelection" />
+                    <span>{{ name }}</span>
+                  </label>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" class="cursor-pointer" @click="tagsDialogOpen = false">Cancel</Button>
+                <Button class="cursor-pointer" @click="async () => { if (journalStore.selectedJournal) { await journalStore.updateJournalTags(journalStore.selectedJournal.id, tagSelection); tagsDialogOpen = false; } }">Save</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 items-start">
-          <Card 
+          <Card
             v-for="(entry, index) in sortedEntries" 
             :key="entry.id" 
             class="border-2 transition-all cursor-move"
@@ -412,3 +464,15 @@ onMounted(() => {
     </Transition>
   </AppLayout>
 </template>
+
+<style scoped>
+.pattern-bg {
+  /* Minimal dot grid pattern, more visible on light background */
+  background-image: radial-gradient(rgba(0,0,0,0.12) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+html.dark .pattern-bg {
+  /* Slightly brighter dots for dark mode */
+  background-image: radial-gradient(rgba(255,255,255,0.12) 1px, transparent 1px);
+}
+</style>

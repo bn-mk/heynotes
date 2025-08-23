@@ -40,7 +40,7 @@ async function handleCreate() {
       credentials: 'same-origin',
       body: JSON.stringify({
         title: journalTitle.value,
-        tags: '',
+'tags': [],
       }),
     });
 

@@ -6,6 +6,7 @@ export const useJournalStore = defineStore('journal', {
     journals: [] as JournalListType[],
     trashedJournals: [] as JournalListType[],
     trashedEntries: [] as any[],
+    allTags: [] as string[],
     selectedJournalId: null as string | null,
     creatingEntry: false,
     creatingJournal: false,
@@ -32,7 +33,7 @@ export const useJournalStore = defineStore('journal', {
       localStorage.setItem('selectedJournalId', this.selectedJournalId);
       this.creatingEntry = false;
     },
-    async updateJournal(journalId: string, data: { title: string }) {
+    async updateJournal(journalId: string, data: { title?: string, tags?: string[] }) {
         const getCookie = (name: string) => {
             const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
             return match ? decodeURIComponent(match[3]) : null;
@@ -55,6 +56,10 @@ export const useJournalStore = defineStore('journal', {
                 const index = this.journals.findIndex(j => j.id === journalId);
                 if (index !== -1) {
                     this.journals[index] = { ...this.journals[index], ...updatedJournal };
+                    // Also update selected if needed
+                    if (this.selectedJournalId === journalId) {
+                        this.journals[index] = { ...this.journals[index] };
+                    }
                 }
             } else {
                 console.error('Failed to update journal');
@@ -63,6 +68,22 @@ export const useJournalStore = defineStore('journal', {
             console.error('Error updating journal:', error);
         }
     },
+
+    async fetchTags() {
+      const xsrf = this.getCookie('XSRF-TOKEN') ?? '';
+      try {
+        const response = await fetch('/api/tags', {
+          credentials: 'include',
+          headers: { 'X-XSRF-TOKEN': xsrf },
+        });
+        if (response.ok) {
+          this.allTags = await response.json();
+        }
+      } catch (e) {
+        console.error('Failed to fetch tags', e);
+      }
+    },
+
     startCreatingEntry() {
       this.creatingEntry = true;
     },
@@ -234,6 +255,10 @@ export const useJournalStore = defineStore('journal', {
     getCookie(name: string) {
         const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
         return match ? decodeURIComponent(match[3]) : null;
+    },
+
+    async updateJournalTags(journalId: string, tags: string[]) {
+      return this.updateJournal(journalId, { tags });
     },
     
     async deleteEntry(journalId: string, entryId: string) {

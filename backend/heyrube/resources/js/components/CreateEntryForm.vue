@@ -23,6 +23,9 @@ const cardType = ref<'text' | 'checkbox'>('text');
 const checkboxItems = ref<Array<{ text: string; checked: boolean }>>([]);
 const newCheckboxItem = ref('');
 const selectedMood = ref<string>('');
+// Tags state
+const selectedTags = ref<string[]>([]);
+const tagFilter = ref('');
 
 // Mood options with emojis
 const moods = [
@@ -66,6 +69,26 @@ watch(() => props.createNewJournal, (newVal) => {
   if (newVal) {
     creatingNewJournal.value = true;
     selectedJournalId.value = 'new';
+  }
+});
+
+// Sync selectedTags when journal changes (creation mode)
+watch(selectedJournalId, (jid) => {
+  if (!isEditMode() && jid && jid !== 'new') {
+    const j = journalStore.journals.find(j => j.id === jid);
+    selectedTags.value = [...(j?.tags || [])];
+  } else if (!isEditMode() && jid === 'new') {
+    selectedTags.value = [];
+  }
+});
+
+onMounted(() => {
+  // Ensure tags list is loaded
+  journalStore.fetchTags?.();
+  // Prefill tags from selected journal if any
+  if (!isEditMode() && selectedJournalId.value && selectedJournalId.value !== 'new') {
+    const j = journalStore.journals.find(j => j.id === selectedJournalId.value);
+    selectedTags.value = [...(j?.tags || [])];
   }
 });
 
@@ -137,7 +160,7 @@ async function submit() {
           'Accept': 'application/json',
           'X-XSRF-TOKEN': getCookie('XSRF-TOKEN') ?? '',
         },
-        body: JSON.stringify({ title: newJournalTitle.value, tags: '' })
+        body: JSON.stringify({ title: newJournalTitle.value, tags: selectedTags.value })
       });
       
       const contentType = response.headers.get('content-type');
@@ -195,6 +218,16 @@ async function submit() {
         entryPayload.checkbox_items = checkboxItems.value;
       }
       
+      // If using existing journal, update its tags if changed
+      if (!isEditMode() && journalId && journalId !== 'new') {
+        const current = journalStore.journals.find(j => j.id === journalId)?.tags || [];
+        const a = [...current].sort();
+        const b = [...selectedTags.value].sort();
+        if (JSON.stringify(a) !== JSON.stringify(b)) {
+          await journalStore.updateJournalTags(journalId, selectedTags.value);
+        }
+      }
+
       if (isEditMode()) {
         // EDIT: PUT
         const response = await fetch(`/api/journals/${journalId}/entries/${props.entryToEdit.id}`, {
@@ -333,6 +366,27 @@ function toggleCheckbox(index: number) {
       </div>
       <div v-if="selectedMood" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
         Mood: {{ moods.find(m => m.value === selectedMood)?.label }}
+      </div>
+    </div>
+
+    <!-- Tags Selector (applies to the selected journal) -->
+    <div v-if="!isEditMode()" class="mb-4">
+      <label class="block text-sm font-medium mb-2">Tags</label>
+      <input
+        type="text"
+        v-model="tagFilter"
+        placeholder="Filter tags..."
+        class="w-full mb-2 px-2 py-1 border rounded"
+      />
+      <div class="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 border rounded">
+        <label
+          v-for="name in (journalStore.allTags || []).filter(t => t.toLowerCase().includes(tagFilter.toLowerCase()))"
+          :key="name"
+          class="inline-flex items-center gap-2 text-xs bg-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-1"
+        >
+          <input type="checkbox" :value="name" v-model="selectedTags" />
+          <span>{{ name }}</span>
+        </label>
       </div>
     </div>
     

@@ -7,6 +7,8 @@ use MongoDB\Laravel\Eloquent\Model;
 
 class Tag extends Model
 {
+    protected $connection = 'mongodb';
+
     protected $fillable = ['name'];
 
     /**

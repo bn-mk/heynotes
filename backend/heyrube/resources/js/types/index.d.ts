@@ -46,6 +46,7 @@ export interface JournalList {
     id: number;
     user_id: string;
     title: string;
+    tags?: string[];
     entries: JournalEntry[];
     icon?: LucideIcon;
 };

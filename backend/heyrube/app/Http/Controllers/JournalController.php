@@ -33,13 +33,14 @@ class JournalController extends Controller
     {
         $validated = $request->validate([
             'title' => 'required|string|max:255',
-            'tags' => 'nullable|string',
+            'tags' => 'nullable|array',
+            'tags.*' => 'string',
         ]);
 
         $journal = Journal::create([
             'user_id' => Auth::id(),
             'title' => $validated['title'],
-            'tags' => $validated['tags'] ?? '',
+            'tags' => array_values(array_unique($validated['tags'] ?? [])),
         ]);
 
         if ($request->wantsJson()) {
@@ -47,6 +48,13 @@ class JournalController extends Controller
         }
 
         return redirect()->route('dashboard');
+    }
+
+    // List available tags
+    public function tags()
+    {
+        $names = \App\Models\Tag::orderBy('name')->pluck('name');
+        return response()->json($names);
     }
 
     // Get all entries for a specific journal
@@ -101,9 +109,17 @@ class JournalController extends Controller
     {
         $validated = $request->validate([
             'title' => 'sometimes|string|max:255',
-            'tags' => 'sometimes|string',
+            'tags' => 'sometimes|array',
+            'tags.*' => 'string',
         ]);
-        $journal->update($validated);
+        $update = [];
+        if (array_key_exists('title', $validated)) {
+            $update['title'] = $validated['title'];
+        }
+        if (array_key_exists('tags', $validated)) {
+            $update['tags'] = array_values(array_unique($validated['tags']));
+        }
+        $journal->update($update);
         return $journal;
     }
 
