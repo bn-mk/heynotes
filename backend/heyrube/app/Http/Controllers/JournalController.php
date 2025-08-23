@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Response;
 use Inertia\Inertia;
 use MongoDB\BSON\ObjectId;
-use Illuminate\Support\Facades\Log;
 
 class JournalController extends Controller
 {
@@ -129,15 +128,6 @@ class JournalController extends Controller
     public function destroyEntry(Journal $journal, JournalEntry $entry)
     {
         $entry->delete();
-        // Refresh and log soft-delete state for debugging
-        try {
-            $entry->refresh();
-        } catch (\Throwable $e) {}
-        Log::info('entry_deleted', [
-            'entry_id' => (string)($entry->_id ?? $entry->id ?? ''),
-            'deleted_at' => $entry->deleted_at ?? null,
-            'journal_id' => isset($entry->journal_id) ? (string)$entry->journal_id : null,
-        ]);
         return response()->json(null, 204);
     }
 
@@ -235,7 +225,6 @@ class JournalController extends Controller
         $activeIdsNormalized = $normalize($activeJournalIds);
         $trashedIdsNormalized = $normalize($trashedJournalIds);
 
-        $allTrashedCount = JournalEntry::withTrashed()->whereNotNull('deleted_at')->count();
         $filteredQuery = JournalEntry::withTrashed()
             ->whereNotNull('deleted_at')
             ->where(function ($q) use ($activeIdsNormalized, $currentUserId) {
@@ -243,15 +232,6 @@ class JournalController extends Controller
                   ->orWhere('user_id', $currentUserId);
             })
             ->whereNotIn('journal_id', $trashedIdsNormalized);
-
-        $filteredCount = $filteredQuery->count();
-
-        Log::info('trashed_entries_query', [
-            'active_journal_ids' => array_map(fn($v) => (string)$v, $activeIdsNormalized),
-            'trashed_journal_ids' => array_map(fn($v) => (string)$v, $trashedIdsNormalized),
-            'all_trashed_count' => $allTrashedCount,
-            'filtered_count' => $filteredCount,
-        ]);
 
         $trashedEntries = $filteredQuery
             ->with('journal:_id,title')
@@ -393,11 +373,6 @@ class JournalController extends Controller
         
         $entry->restore();
         
-        Log::info('entry_restored', [
-            'entry_id' => (string)($entry->_id ?? ''),
-            'journal_id' => (string)($entry->journal_id ?? ''),
-        ]);
-
         return response()->json(['message' => 'Entry restored successfully', 'entry' => $entry->load('journal')]);
     }
     
@@ -446,11 +421,6 @@ class JournalController extends Controller
         
         $entry->forceDelete();
         
-        Log::info('entry_force_deleted', [
-            'entry_id' => (string)($entry->_id ?? ''),
-            'journal_id' => (string)($entry->journal_id ?? ''),
-        ]);
-
         return response()->json(['message' => 'Entry permanently deleted']);
     }
 }

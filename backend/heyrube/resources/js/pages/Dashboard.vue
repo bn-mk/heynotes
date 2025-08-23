@@ -331,7 +331,7 @@ onMounted(() => {
             @dragleave="handleDragLeave($event)"
             @drop="handleDrop(entry, $event)"
           >
-<div class="p-4 flex flex-col relative max-h-[33vh] overflow-hidden">
+<div class="p-4 flex flex-col relative">
               <!-- Mood Emoji Display -->
               <div v-if="entry.mood" class="absolute top-2 left-2" :title="entry.mood">
                 <span class="text-xl">{{ getMoodEmoji(entry.mood) }}</span>
@@ -356,17 +356,17 @@ onMounted(() => {
               </div>
               
               <!-- Text Card Content -->
-              <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-pre-line mb-2 pr-8" :class="{ 'pl-8': entry.mood }">
-                <div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderMarkdown(entry.content)"></div>
+              <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8" :class="{ 'pl-8': entry.mood }">
+<div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
               </div>
               
               <!-- Checkbox Card Content -->
               <div v-else-if="entry.card_type === 'checkbox'" class="pr-8" :class="{ 'pl-8': entry.mood }">
-                <div class="space-y-1">
+                <div class="space-y-0">
                   <div 
                     v-for="(item, idx) in (entry.checkbox_items || [])"
                     :key="idx"
-                    class="flex items-center gap-2 text-sm"
+                    class="flex items-center gap-0.5 text-sm leading-tight"
                   >
                     <CheckSquare v-if="item.checked" class="w-4 h-4 text-green-600 flex-shrink-0" />
                     <Square v-else class="w-4 h-4 text-gray-400 flex-shrink-0" />

@@ -20,7 +20,7 @@ defineProps({
     <div v-else class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
       <Card v-for="entry in entries" :key="entry.id">
         <div class="p-4 flex flex-col h-full">
-          <div class="text-sm text-gray-800 whitespace-pre-line mb-2">{{ entry.content }}</div>
+          <div class="text-sm text-gray-800 whitespace-normal mb-2">{{ entry.content }}</div>
           <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
         </div>
       </Card>
