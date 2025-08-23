@@ -11,8 +11,11 @@ class JournalEntry extends Model
 {
     use SoftDeletes;
 
+    protected $connection = 'mongodb';
+
     protected $fillable = [
         'journal_id',
+        'user_id',
         'content',
         'mood',
         'display_order',
@@ -27,6 +30,12 @@ class JournalEntry extends Model
     ];
 
     protected $dates = ['deleted_at'];
+
+    public function getRouteKeyName()
+    {
+        return '_id';
+    }
+
     public function journal(): BelongsTo   
     {
         // For MongoDB: foreign key journal_id, owner key _id

@@ -121,6 +121,7 @@ export const useJournalStore = defineStore('journal', {
       try {
         // Fetch trashed journals
         const journalsResponse = await fetch('/api/trash/journals', {
+            credentials: 'include',
             headers: {
                 'X-XSRF-TOKEN': xsrf,
             },
@@ -134,6 +135,7 @@ export const useJournalStore = defineStore('journal', {
         
         // Fetch trashed entries
         const entriesResponse = await fetch('/api/trash/entries', {
+            credentials: 'include',
             headers: {
                 'X-XSRF-TOKEN': xsrf,
             },
@@ -156,6 +158,7 @@ export const useJournalStore = defineStore('journal', {
         const response = await fetch(`/api/trash/journals/${journalId}/restore`,
         {
             method: 'POST',
+            credentials: 'include',
             headers: {
                 'Content-Type': 'application/json',
                 'X-XSRF-TOKEN': xsrf,
@@ -181,6 +184,7 @@ export const useJournalStore = defineStore('journal', {
         const response = await fetch(`/api/trash/journals/${journalId}`,
         {
             method: 'DELETE',
+            credentials: 'include',
             headers: {
                 'Content-Type': 'application/json',
                 'X-XSRF-TOKEN': xsrf,
@@ -203,6 +207,7 @@ export const useJournalStore = defineStore('journal', {
       try {
         const response = await fetch('/api/trash/empty', {
             method: 'DELETE',
+            credentials: 'include',
             headers: {
                 'Content-Type': 'application/json',
                 'X-XSRF-TOKEN': xsrf,
@@ -267,6 +272,7 @@ export const useJournalStore = defineStore('journal', {
       try {
         const response = await fetch(`/api/trash/entries/${entryId}/restore`, {
             method: 'POST',
+            credentials: 'include',
             headers: {
                 'Content-Type': 'application/json',
                 'X-XSRF-TOKEN': xsrf,
@@ -275,8 +281,8 @@ export const useJournalStore = defineStore('journal', {
         
         if (response.ok) {
             const { entry } = await response.json();
-            // Remove from trashed entries
-            this.trashedEntries = this.trashedEntries.filter(e => e.id !== entryId);
+            // Remove from trashed entries (support _id or id)
+            this.trashedEntries = this.trashedEntries.filter(e => (e._id || e.id) !== entryId);
             // Add back to the journal's entries
             const journal = this.journals.find(j => j.id === entry.journal_id);
             if (journal) {
@@ -297,6 +303,7 @@ export const useJournalStore = defineStore('journal', {
       try {
         const response = await fetch(`/api/trash/entries/${entryId}`, {
             method: 'DELETE',
+            credentials: 'include',
             headers: {
                 'Content-Type': 'application/json',
                 'X-XSRF-TOKEN': xsrf,
@@ -304,7 +311,8 @@ export const useJournalStore = defineStore('journal', {
         });
         
         if (response.ok) {
-            this.trashedEntries = this.trashedEntries.filter(e => e.id !== entryId);
+            // Remove from trashed entries (support _id or id)
+            this.trashedEntries = this.trashedEntries.filter(e => (e._id || e.id) !== entryId);
         } else {
             console.error('Failed to permanently delete entry');
         }

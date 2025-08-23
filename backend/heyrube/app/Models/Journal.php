@@ -13,6 +13,8 @@ class Journal extends Model
 {
     use SoftDeletes;
 
+    protected $connection = 'mongodb';
+
     protected $fillable = [
         'title',
         'user_id',

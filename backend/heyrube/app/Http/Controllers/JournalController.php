@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Response;
 use Inertia\Inertia;
+use MongoDB\BSON\ObjectId;
+use Illuminate\Support\Facades\Log;
 
 class JournalController extends Controller
 {
@@ -73,6 +75,7 @@ class JournalController extends Controller
             'display_order' => $maxOrder + 1,
             'card_type' => $validated['card_type'] ?? 'text',
             'mood' => $validated['mood'] ?? null,
+            'user_id' => $journal->user_id,
         ];
         
         if ($validated['card_type'] === 'text') {
@@ -126,6 +129,15 @@ class JournalController extends Controller
     public function destroyEntry(Journal $journal, JournalEntry $entry)
     {
         $entry->delete();
+        // Refresh and log soft-delete state for debugging
+        try {
+            $entry->refresh();
+        } catch (\Throwable $e) {}
+        Log::info('entry_deleted', [
+            'entry_id' => (string)($entry->_id ?? $entry->id ?? ''),
+            'deleted_at' => $entry->deleted_at ?? null,
+            'journal_id' => isset($entry->journal_id) ? (string)$entry->journal_id : null,
+        ]);
         return response()->json(null, 204);
     }
 
@@ -143,9 +155,18 @@ class JournalController extends Controller
         ]);
         
         $updateData = [
-            'journal_id' => $validated['journal_id'] ?? $entry->journal_id
+            'journal_id' => $validated['journal_id'] ?? $entry->journal_id,
+            'user_id' => $entry->user_id,
         ];
         
+        // If journal_id changed, sync user_id from the target journal
+        if (isset($validated['journal_id']) && $validated['journal_id'] !== $entry->journal_id) {
+            $targetUserId = Journal::withTrashed()->where('_id', $validated['journal_id'])->value('user_id');
+            if ($targetUserId) {
+                $updateData['user_id'] = $targetUserId;
+            }
+        }
+
         // Handle card type update
         if (isset($validated['card_type'])) {
             $updateData['card_type'] = $validated['card_type'];
@@ -187,12 +208,54 @@ class JournalController extends Controller
     // Get all trashed entries (not in trashed journals)
     public function trashedEntries()
     {
-        // Get entries that are trashed but belong to active (non-trashed) journals
-        $trashedEntries = JournalEntry::onlyTrashed()
-            ->whereHas('journal', function ($query) {
-                $query->where('user_id', Auth::id());
+        // Prepare current user id as string
+        $currentUserId = (string) (Auth::user()->_id ?? Auth::id());
+
+        // Active and trashed journal ids for current user
+        $activeJournalIds = Journal::where('user_id', $currentUserId)->pluck('_id');
+        $trashedJournalIds = Journal::onlyTrashed()->where('user_id', $currentUserId)->pluck('_id');
+
+        // Normalize ids to support ObjectId/string comparisons
+        $normalize = function ($ids) {
+            return collect($ids)
+                ->flatMap(function ($id) {
+                    $asString = (string) $id;
+                    try {
+                        $asObject = new ObjectId($asString);
+                        return [$id, $asString, $asObject];
+                    } catch (\Throwable $e) {
+                        return [$id, $asString];
+                    }
+                })
+                ->unique(strict: false)
+                ->values()
+                ->all();
+        };
+
+        $activeIdsNormalized = $normalize($activeJournalIds);
+        $trashedIdsNormalized = $normalize($trashedJournalIds);
+
+        $allTrashedCount = JournalEntry::withTrashed()->whereNotNull('deleted_at')->count();
+        $filteredQuery = JournalEntry::withTrashed()
+            ->whereNotNull('deleted_at')
+            ->where(function ($q) use ($activeIdsNormalized, $currentUserId) {
+                $q->whereIn('journal_id', $activeIdsNormalized)
+                  ->orWhere('user_id', $currentUserId);
             })
+            ->whereNotIn('journal_id', $trashedIdsNormalized);
+
+        $filteredCount = $filteredQuery->count();
+
+        Log::info('trashed_entries_query', [
+            'active_journal_ids' => array_map(fn($v) => (string)$v, $activeIdsNormalized),
+            'trashed_journal_ids' => array_map(fn($v) => (string)$v, $trashedIdsNormalized),
+            'all_trashed_count' => $allTrashedCount,
+            'filtered_count' => $filteredCount,
+        ]);
+
+        $trashedEntries = $filteredQuery
             ->with('journal:_id,title')
+            ->orderBy('deleted_at', 'desc')
             ->get();
         
         return response()->json($trashedEntries);
@@ -240,9 +303,23 @@ class JournalController extends Controller
         }
         
         // Also delete individual trashed entries (not in trashed journals)
+        // Derive active journal ids using direct query on journals collection
         $activeJournalIds = Journal::where('user_id', Auth::id())->pluck('_id');
+        $idsNormalized = collect($activeJournalIds)
+            ->flatMap(function ($id) {
+                $asString = (string) $id;
+                try {
+                    $asObject = new ObjectId($asString);
+                    return [$id, $asString, $asObject];
+                } catch (\Throwable $e) {
+                    return [$id, $asString];
+                }
+            })
+            ->unique(strict: false)
+            ->values()
+            ->all();
         JournalEntry::onlyTrashed()
-            ->whereIn('journal_id', $activeJournalIds)
+            ->whereIn('journal_id', $idsNormalized)
             ->forceDelete();
         
         return response()->json(['message' => 'Trash emptied successfully']);
@@ -274,11 +351,27 @@ class JournalController extends Controller
     // Restore a soft-deleted entry
     public function restoreEntry($entryId)
     {
-        $entry = JournalEntry::onlyTrashed()
-            ->where('_id', $entryId)
-            ->whereHas('journal', function ($query) {
-                $query->where('user_id', Auth::id());
+        // Restrict to entries belonging to the current user's active journals (handle string/ObjectId)
+        // Derive active journal ids using direct query on journals collection
+        $activeJournalIds = Journal::where('user_id', Auth::id())->pluck('_id');
+        $idsNormalized = collect($activeJournalIds)
+            ->flatMap(function ($id) {
+                $asString = (string) $id;
+                try {
+                    $asObject = new ObjectId($asString);
+                    return [$id, $asString, $asObject];
+                } catch (\Throwable $e) {
+                    return [$id, $asString];
+                }
             })
+            ->unique(strict: false)
+            ->values()
+            ->all();
+
+        $entry = JournalEntry::withTrashed()
+            ->where('_id', $entryId)
+            ->whereNotNull('deleted_at')
+            ->whereIn('journal_id', $idsNormalized)
             ->firstOrFail();
         
         $entry->restore();
@@ -289,11 +382,26 @@ class JournalController extends Controller
     // Permanently delete a soft-deleted entry
     public function forceDestroyEntry($entryId)
     {
+        // Restrict to entries belonging to the current user's active journals (handle string/ObjectId)
+        // Derive active journal ids using direct query on journals collection
+        $activeJournalIds = Journal::where('user_id', Auth::id())->pluck('_id');
+        $idsNormalized = collect($activeJournalIds)
+            ->flatMap(function ($id) {
+                $asString = (string) $id;
+                try {
+                    $asObject = new ObjectId($asString);
+                    return [$id, $asString, $asObject];
+                } catch (\Throwable $e) {
+                    return [$id, $asString];
+                }
+            })
+            ->unique(strict: false)
+            ->values()
+            ->all();
+
         $entry = JournalEntry::onlyTrashed()
             ->where('_id', $entryId)
-            ->whereHas('journal', function ($query) {
-                $query->where('user_id', Auth::id());
-            })
+            ->whereIn('journal_id', $idsNormalized)
             ->firstOrFail();
         
         $entry->forceDelete();
