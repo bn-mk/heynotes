@@ -4,7 +4,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import Card from '@/components/ui/card/Card.vue';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, PenSquare, Check, Square, CheckSquare } from 'lucide-vue-next';
+import { PlusSquare, Tag, Check, Square, CheckSquare } from 'lucide-vue-next';
 import { onMounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
@@ -46,6 +46,25 @@ const editingJournalTitle = ref('');
 const tagsDialogOpen = ref(false);
 const tagSelection = ref<string[]>([]);
 const tagFilter = ref('');
+
+const canAddTag = computed(() => {
+  const name = tagFilter.value.trim();
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return !journalStore.allTags.some(t => t.toLowerCase() === lower);
+});
+
+async function addNewTag() {
+  const name = tagFilter.value.trim();
+  if (!name) return;
+  const created = await journalStore.createTag(name);
+  if (created) {
+    if (!tagSelection.value.includes(created)) {
+      tagSelection.value.push(created);
+    }
+    // keep the filter so user sees it in the list; alternatively clear it
+  }
+}
 
 function openTagsDialog() {
   tagsDialogOpen.value = true;
@@ -307,7 +326,7 @@ onMounted(() => {
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center">
               <template v-if="editingJournalId !== journalStore.selectedJournal.id">
-                <h1 class="text-2xl font-bold">
+                <h1 class="text-6xl font-['Tangerine']">
                   {{ journalStore.selectedJournal.title }}
                 </h1>
                 <div v-if="journalStore.selectedJournal?.tags?.length" class="flex flex-wrap items-center gap-2 ml-3">
@@ -332,18 +351,23 @@ onMounted(() => {
             <div class="flex items-center gap-2">
               <Button 
                 variant="outline"
-                size="sm"
-                class="cursor-pointer"
+                size="icon"
+                class="cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
                 @click="openTagsDialog"
+                title="Manage Tags"
               >
-                Manage Tags
+                <Tag class="h-4 w-4" />
+                <span class="sr-only">Manage Tags</span>
               </Button>
               <Button 
                 @click="journalStore.startCreatingEntry()"
-                class="gap-2 cursor-pointer"
+                size="icon"
+                variant="default"
+                class="cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                title="New Entry"
               >
-                <PenSquare class="h-4 w-4" />
-                New Entry
+                <PlusSquare class="h-4 w-4" />
+                <span class="sr-only">New Entry</span>
               </Button>
             </div>
           </div>
@@ -356,7 +380,18 @@ onMounted(() => {
                 <DialogDescription>Select tags to apply to this journal.</DialogDescription>
               </DialogHeader>
               <div class="space-y-3">
-                <input type="text" v-model="tagFilter" placeholder="Filter tags..." class="w-full px-2 py-1 border rounded" />
+                <input type="text" v-model="tagFilter" placeholder="Filter or add tag..." class="w-full px-2 py-1 border rounded" />
+                <div v-if="canAddTag" class="flex items-center justify-between text-sm">
+                  <span class="text-muted-foreground">New tag:</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                    @click="addNewTag"
+                  >
+                    Add "{{ tagFilter.trim() }}"
+                  </Button>
+                </div>
                 <div class="max-h-64 overflow-y-auto space-y-1">
                   <label v-for="name in journalStore.allTags.filter(t => t.toLowerCase().includes(tagFilter.toLowerCase()))" :key="name" class="flex items-center gap-2 text-sm">
                     <input type="checkbox" :value="name" v-model="tagSelection" />
@@ -371,7 +406,7 @@ onMounted(() => {
             </DialogContent>
           </Dialog>
 
-          <div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 items-start">
+<div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 items-start">
           <Card
             v-for="(entry, index) in sortedEntries" 
             :key="entry.id" 
@@ -458,12 +493,21 @@ onMounted(() => {
 
 <style scoped>
 .pattern-bg {
-  /* Minimal dot grid pattern, more visible on light background */
-  background-image: radial-gradient(rgba(0,0,0,0.12) 1px, transparent 1px);
-  background-size: 12px 12px;
+  /* Lightweight geometric cross‑hatch + grid (light mode) */
+  background-image:
+    repeating-linear-gradient(45deg, rgba(0,0,0,0.04) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(135deg, rgba(0,0,0,0.04) 0 1px, transparent 1px 28px),
+    linear-gradient(to right, rgba(0,0,0,0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0,0,0,0.035) 1px, transparent 1px);
+  background-size: auto, auto, 36px 36px, 36px 36px;
 }
 html.dark .pattern-bg {
-  /* Slightly brighter dots for dark mode */
-  background-image: radial-gradient(rgba(255,255,255,0.12) 1px, transparent 1px);
+  /* Lightweight geometric cross‑hatch + grid (dark mode) */
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 28px),
+    linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: auto, auto, 36px 36px, 36px 36px;
 }
 </style>

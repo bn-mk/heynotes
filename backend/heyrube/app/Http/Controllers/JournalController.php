@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Journal;
 use App\Models\JournalEntry;
+use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -53,8 +54,26 @@ class JournalController extends Controller
     // List available tags
     public function tags()
     {
-        $names = \App\Models\Tag::orderBy('name')->pluck('name');
+        $names = Tag::orderBy('name')->pluck('name');
         return response()->json($names);
+    }
+
+    // Create a new tag
+    public function createTag(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:64',
+        ]);
+
+        $name = trim($validated['name']);
+        if ($name === '') {
+            return response()->json(['message' => 'Tag name cannot be empty'], 422);
+        }
+
+        // Create if not exists (case-sensitive uniqueness)
+        $tag = Tag::firstOrCreate(['name' => $name]);
+
+        return response()->json($tag->name, 201);
     }
 
     // Get all entries for a specific journal

@@ -3,7 +3,7 @@ import JournalList from '@/components/JournalList.vue';
 import NavUser from '@/components/NavUser.vue';
 import TrashBin from '@/components/TrashBin.vue';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-vue-next';
+import { PlusSquare } from 'lucide-vue-next';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Link } from '@inertiajs/vue3';
 import { useJournalStore } from '@/stores/journals';
@@ -26,8 +26,17 @@ const journalStore = useJournalStore();
                 </SidebarMenuItem>
                         <JournalList />
             </SidebarMenu>
-            <div class="px-4 py-2">
-                <TrashBin />
+            <div class="py-2">
+                <Button 
+                    @click="journalStore.startCreatingJournal()"
+                    size="icon"
+                    variant="default"
+                    class="cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                    title="New Journal"
+                >
+                    <PlusSquare class="h-4 w-4" />
+                    <span class="sr-only">Create New Journal</span>
+                </Button>
             </div>
         </SidebarHeader>
 
@@ -35,14 +44,8 @@ const journalStore = useJournalStore();
         </SidebarContent>
 
         <SidebarFooter>
-            <div class="px-4 py-2">
-                <Button 
-                    @click="journalStore.startCreatingJournal()"
-                    class="w-full gap-2 cursor-pointer"
-                >
-                    <Plus class="h-4 w-4" />
-                    Create New Journal
-                </Button>
+            <div class="py-2">
+                <TrashBin />
             </div>
             <NavUser />
         </SidebarFooter>

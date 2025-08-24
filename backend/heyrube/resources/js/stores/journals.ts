@@ -260,6 +260,32 @@ export const useJournalStore = defineStore('journal', {
     async updateJournalTags(journalId: string, tags: string[]) {
       return this.updateJournal(journalId, { tags });
     },
+
+    async createTag(name: string) {
+      const xsrf = this.getCookie('XSRF-TOKEN') ?? '';
+      try {
+        const response = await fetch('/api/tags', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-XSRF-TOKEN': xsrf,
+          },
+          body: JSON.stringify({ name }),
+        });
+        if (response.ok) {
+          const createdName = await response.json();
+          // Update client-side list if not present
+          if (!this.allTags.includes(createdName)) {
+            this.allTags = [...this.allTags, createdName].sort((a, b) => a.localeCompare(b));
+          }
+          return createdName as string;
+        }
+      } catch (e) {
+        console.error('Failed to create tag', e);
+      }
+      return null;
+    },
     
     async deleteEntry(journalId: string, entryId: string) {
       const xsrf = this.getCookie('XSRF-TOKEN') ?? '';

@@ -11,6 +11,7 @@ Route::get('/user', function (Request $request) {
 Route::middleware('auth:sanctum')->group(function() {
     Route::get('journals', [JournalController::class, 'index']);
     Route::get('tags', [JournalController::class, 'tags']);
+    Route::post('tags', [JournalController::class, 'createTag']);
     Route::post('journals', [JournalController::class, 'store']);
     Route::get('journals/{journal}', [JournalController::class, 'show']);
     Route::put('journals/{journal}', [JournalController::class, 'update']);

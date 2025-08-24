@@ -80,7 +80,7 @@ function getMoodEmoji(mood: string): string {
 <template>
   <Dialog v-model:open="isOpen">
     <DialogTrigger as-child>
-      <Button variant="outline" size="sm" class="gap-2 cursor-pointer">
+      <Button variant="outline" size="sm" class="gap-2 cursor-pointer" title="Trash">
         <Trash2 class="h-4 w-4" />
         Trash ({{ totalTrashedItems }})
       </Button>
