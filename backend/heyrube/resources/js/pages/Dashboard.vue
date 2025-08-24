@@ -4,7 +4,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import Card from '@/components/ui/card/Card.vue';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { PlusSquare, Tag, Check, Square, CheckSquare } from 'lucide-vue-next';
+import { PlusSquare, Tag, Check, Square, CheckSquare, Trash2 } from 'lucide-vue-next';
 import { onMounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
@@ -515,7 +515,7 @@ onMounted(() => {
             v-for="(entry, index) in sortedEntries" 
             :key="entry.id" 
             class="border-2 transition-all cursor-pointer group"
-            :style="{ borderColor: getBorderColor(index, sortedEntries.length) }"
+            :style="[{ borderColor: getBorderColor(index, sortedEntries.length) }, cardSwipeStyle(entry)]"
             draggable="true"
             @dragstart="handleDragStart(entry, $event)"
             @dragend="handleDragEnd($event)"
@@ -527,7 +527,6 @@ onMounted(() => {
             @touchstart="onTouchStart(entry, $event)"
             @touchmove="onTouchMove($event)"
             @touchend="onTouchEnd(entry, $event)"
-            :style="cardSwipeStyle(entry)"
           >
           <div class="p-4 flex flex-col relative">
               <!-- Mood Emoji Display -->
