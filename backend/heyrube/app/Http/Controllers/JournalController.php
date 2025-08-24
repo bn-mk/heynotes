@@ -16,7 +16,7 @@ class JournalController extends Controller
     // List all journals for the current user
     public function index()
     {
-        $journals = Auth::user()->journals()->with('entries')->get();
+        $journals = Auth::user()->journals()->with('entries')->orderBy('created_at', 'desc')->get();
         return Inertia::render('Dashboard',
      ['journals' => $journals] ?: [],  
         );
@@ -338,6 +338,7 @@ class JournalController extends Controller
         foreach ($validated['entries'] as $entryData) {
             JournalEntry::where('_id', $entryData['id'])
                 ->where('journal_id', $journal->_id)
+                ->orderBy('created_at', 'desc')
                 ->update(['display_order' => $entryData['display_order']]);
         }
 

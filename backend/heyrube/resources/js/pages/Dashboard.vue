@@ -9,6 +9,7 @@ import { onMounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
 import CreateEntryForm from '@/components/CreateEntryForm.vue';
+import DeleteEntryButton from '@/components/DeleteEntryButton.vue';
 
 const props = defineProps<{
   journals: JournalListType[],
@@ -16,6 +17,7 @@ const props = defineProps<{
 
 const journalStore = useJournalStore();
 import MarkdownIt from 'markdown-it';
+
 const md = new MarkdownIt();
 
 function renderMarkdown(content: string) {
@@ -369,11 +371,11 @@ onMounted(() => {
             </DialogContent>
           </Dialog>
 
-          <div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 items-start">
+          <div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 items-start">
           <Card
             v-for="(entry, index) in sortedEntries" 
             :key="entry.id" 
-            class="border-2 transition-all cursor-move"
+            class="border-2 transition-all cursor-pointer group"
             :style="{ borderColor: getBorderColor(index, sortedEntries.length) }"
             draggable="true"
             @dragstart="handleDragStart(entry, $event)"
@@ -382,31 +384,20 @@ onMounted(() => {
             @dragenter="handleDragEnter(entry, $event)"
             @dragleave="handleDragLeave($event)"
             @drop="handleDrop(entry, $event)"
+            @click="handleEditEntry(entry)"
           >
-<div class="p-4 flex flex-col relative">
+          <div class="p-4 flex flex-col relative">
               <!-- Mood Emoji Display -->
               <div v-if="entry.mood" class="absolute top-2 left-2" :title="entry.mood">
-                <span class="text-xl">{{ getMoodEmoji(entry.mood) }}</span>
+                <span class="text-lg">{{ getMoodEmoji(entry.mood) }}</span>
               </div>
               
-              <button
-                @click="entry.openMenu = !entry.openMenu"
-                class="absolute top-2 right-2 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-zinc-700 cursor-pointer"
-                aria-label="Show entry menu"
-                type="button"
-              >
-                <!-- three dots icon -->
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <circle cx="5" cy="12" r="1.5" />
-                  <circle cx="12" cy="12" r="1.5" />
-                  <circle cx="19" cy="12" r="1.5" />
-                </svg>
-              </button>
-              <div v-if="entry.openMenu" class="absolute top-9 right-2 z-10 bg-white dark:bg-zinc-800 rounded-lg shadow-lg border py-1 px-2 flex flex-col min-w-[120px]">
-                <button @click="handleEditEntry(entry)" class="cursor-pointer px-2 py-1 text-sm text-left hover:bg-blue-100 dark:hover:bg-zinc-700 rounded">Edit</button>
-                <button @click="handleDeleteEntry(entry)" class="cursor-pointer px-2 py-1 text-sm text-left hover:bg-red-100 dark:hover:bg-red-700 rounded text-red-600 dark:text-red-300">Delete</button>
+              <div class="absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto">
+                <DeleteEntryButton
+                  :entry-id="String(entry.id)"
+                  @deleted="showNotification('Entry moved to trash')"
+                />
               </div>
-              
               <!-- Text Card Content -->
               <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8" :class="{ 'pl-8': entry.mood }">
 <div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
