@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JournalController;
+use App\Http\Controllers\LinkController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -34,4 +35,11 @@ Route::middleware('auth:sanctum')->group(function() {
     
     // Empty all trash
     Route::delete('trash/empty', [JournalController::class, 'emptyTrash']);
+
+    // Links and graph
+    Route::post('links', [LinkController::class, 'store']);
+    Route::get('links', [LinkController::class, 'index']);
+    Route::delete('links', [LinkController::class, 'destroy']);
+    Route::get('graph', [LinkController::class, 'graph']);
+    Route::get('search', [LinkController::class, 'search']);
 });

@@ -4,12 +4,13 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import Card from '@/components/ui/card/Card.vue';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { PlusSquare, Tag, Check, Square, CheckSquare, Trash2 } from 'lucide-vue-next';
-import { onMounted } from 'vue';
+import { Check, Square, CheckSquare, Trash2 } from 'lucide-vue-next';
+import { onMounted, onUnmounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
 import CreateEntryForm from '@/components/CreateEntryForm.vue';
 import DeleteEntryButton from '@/components/DeleteEntryButton.vue';
+import LinkEntryButton from '@/components/LinkEntryButton.vue';
 
 const props = defineProps<{
   journals: JournalListType[],
@@ -179,17 +180,29 @@ function onCardClick(entry: any, _e: MouseEvent) {
 
 const sortedEntries = computed(() => {
   const entries = journalStore.selectedJournal?.entries || [];
-  // First sort by display_order if it exists, then by created_at
-  return entries.slice().sort((a, b) => {
-    // If both have display_order, use that
-    if (a.display_order !== undefined && b.display_order !== undefined) {
-      return a.display_order - b.display_order;
-    }
-    // Otherwise fall back to date sorting
-    const da = new Date(a.created_at || 0);
-    const db = new Date(b.created_at || 0);
-    return db.getTime() - da.getTime();
-  });
+  if (entries.length === 0) return [] as any[];
+
+  const hasAnyOrder = entries.some((e: any) => e.display_order !== undefined);
+
+  if (!hasAnyOrder) {
+    // Default: newest first by created_at
+    return entries
+      .slice()
+      .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  }
+
+  // When any manual order exists:
+  // - Keep newest unordered (no display_order) entries at the top by date
+  // - Followed by ordered entries by display_order asc
+  const unordered = entries
+    .filter((e: any) => e.display_order === undefined)
+    .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+  const ordered = entries
+    .filter((e: any) => e.display_order !== undefined)
+    .sort((a: any, b: any) => (a.display_order as number) - (b.display_order as number));
+
+  return [...unordered, ...ordered];
 });
 
 function handleEditTitle() {
@@ -392,7 +405,18 @@ async function saveEntryOrder(entries: any[]) {
   }
 }
 
+// Global header action listeners
+function handleStartCreatingEntryEvent() {
+  journalStore.startCreatingEntry();
+}
+function handleOpenTagsEvent() {
+  openTagsDialog();
+}
+
 onMounted(() => {
+  window.addEventListener('start-creating-entry', handleStartCreatingEntryEvent);
+  window.addEventListener('open-tags-dialog', handleOpenTagsEvent);
+
   if (props.journals) {
     // Ensure all ids are strings (for Mongo compatibility)
     journalStore.setJournals(props.journals.map(j => ({ ...j, id: j.id.toString() })));
@@ -409,6 +433,11 @@ onMounted(() => {
   }
   // Preload tags for tag manager
   journalStore.fetchTags();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('start-creating-entry', handleStartCreatingEntryEvent);
+  window.removeEventListener('open-tags-dialog', handleOpenTagsEvent);
 });
 </script>
 
@@ -452,28 +481,7 @@ onMounted(() => {
                 </div>
               </template>
             </div>
-            <div class="flex items-center gap-2">
-              <Button 
-                variant="outline"
-                size="icon"
-                class="cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
-                @click="openTagsDialog"
-                title="Manage Tags"
-              >
-                <Tag class="h-4 w-4" />
-                <span class="sr-only">Manage Tags</span>
-              </Button>
-              <Button 
-                @click="journalStore.startCreatingEntry()"
-                size="icon"
-                variant="default"
-                class="cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
-                title="New Entry"
-              >
-                <PlusSquare class="h-4 w-4" />
-                <span class="sr-only">New Entry</span>
-              </Button>
-            </div>
+            <div class="flex items-center gap-2"></div>
           </div>
 
           <!-- Manage Tags Dialog -->
@@ -510,11 +518,11 @@ onMounted(() => {
             </DialogContent>
           </Dialog>
 
-<div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="grid gap-4 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 items-start">
+<div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="columns-1 sm:columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-x-6">
           <Card
             v-for="(entry, index) in sortedEntries" 
             :key="entry.id" 
-            class="border-2 transition-all cursor-pointer group"
+class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inline-block w-full will-change-transform hover:-translate-y-0.5 hover:shadow-md masonry-card"
             :style="[{ borderColor: getBorderColor(index, sortedEntries.length) }, cardSwipeStyle(entry)]"
             draggable="true"
             @dragstart="handleDragStart(entry, $event)"
@@ -534,7 +542,8 @@ onMounted(() => {
                 <span class="text-lg">{{ getMoodEmoji(entry.mood) }}</span>
               </div>
               
-              <div class="absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto">
+<div class="absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-1">
+<LinkEntryButton :entry-id="String(entry.id)" />
                 <DeleteEntryButton
                   :entry-id="String(entry.id)"
                   @deleted="showNotification('Entry moved to trash')"
@@ -624,5 +633,13 @@ html.dark .pattern-bg {
     linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
   background-size: auto, auto, 36px 36px, 36px 36px;
+}
+
+.masonry-card {
+  animation: fadeSlideIn 240ms ease-out both;
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

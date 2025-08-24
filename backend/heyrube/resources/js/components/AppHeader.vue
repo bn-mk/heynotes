@@ -12,7 +12,7 @@ import UserMenuContent from '@/components/UserMenuContent.vue';
 import { getInitials } from '@/composables/useInitials';
 import type { BreadcrumbItem, NavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/vue3';
-import { BookOpen, Folder, LayoutGrid, Menu, Search } from 'lucide-vue-next';
+import { BookOpen, Folder, LayoutGrid, Menu, Search, PlusSquare, Tag } from 'lucide-vue-next';
 import { computed } from 'vue';
 
 interface Props {
@@ -31,6 +31,13 @@ const isCurrentRoute = computed(() => (url: string) => page.url === url);
 const activeItemStyles = computed(
     () => (url: string) => (isCurrentRoute.value(url) ? 'text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100' : ''),
 );
+
+function triggerStartCreatingEntry() {
+    window.dispatchEvent(new CustomEvent('start-creating-entry'));
+}
+function triggerOpenTagsDialog() {
+    window.dispatchEvent(new CustomEvent('open-tags-dialog'));
+}
 
 const mainNavItems: NavItem[] = [
     {
@@ -134,6 +141,34 @@ const rightNavItems: NavItem[] = [
                         </Button>
 
                         <div class="hidden space-x-1 lg:flex">
+                            <!-- Dashboard actions -->
+                            <TooltipProvider :delay-duration="0" v-if="isCurrentRoute('/dashboard')">
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Button variant="ghost" size="icon" class="group h-9 w-9 cursor-pointer" title="Manage Tags" @click="triggerOpenTagsDialog">
+                                            <Tag class="size-5 opacity-80 group-hover:opacity-100" />
+                                            <span class="sr-only">Manage Tags</span>
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>Manage Tags</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider :delay-duration="0" v-if="isCurrentRoute('/dashboard')">
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <Button variant="ghost" size="icon" class="group h-9 w-9 cursor-pointer" title="New Entry" @click="triggerStartCreatingEntry">
+                                            <PlusSquare class="size-5 opacity-80 group-hover:opacity-100" />
+                                            <span class="sr-only">New Entry</span>
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>New Entry</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                            <!-- External links -->
                             <template v-for="item in rightNavItems" :key="item.title">
                                 <TooltipProvider :delay-duration="0">
                                     <Tooltip>

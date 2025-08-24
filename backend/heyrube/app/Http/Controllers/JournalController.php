@@ -18,9 +18,9 @@ class JournalController extends Controller
     public function index()
     {
         $journals = Auth::user()->journals()->with('entries')->orderBy('created_at', 'desc')->get();
-        return Inertia::render('Dashboard',
-     ['journals' => $journals] ?: [],  
-        );
+        return Inertia::render('Dashboard', [
+            'journals' => $journals,
+        ]);
     }
 
     // Show the form for creating a new journal.
