@@ -344,30 +344,6 @@ function toggleCheckbox(index: number) {
       </button>
     </div>
     
-    <!-- Mood Selector -->
-    <div class="mb-4">
-      <label class="block text-sm font-medium mb-2">How are you feeling?</label>
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="mood in moods"
-          :key="mood.value"
-          type="button"
-          @click="selectedMood = selectedMood === mood.value ? '' : mood.value"
-          :class="[
-            'px-3 py-2 rounded-lg border-2 transition-all transform hover:scale-105',
-            selectedMood === mood.value 
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
-              : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
-          ]"
-          :title="mood.label"
-        >
-          <span class="text-2xl">{{ mood.emoji }}</span>
-        </button>
-      </div>
-      <div v-if="selectedMood" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-        Mood: {{ moods.find(m => m.value === selectedMood)?.label }}
-      </div>
-    </div>
 
     <!-- Tags Selector (applies to the selected journal) -->
     <div v-if="!isEditMode()" class="mb-4">
@@ -397,7 +373,30 @@ function toggleCheckbox(index: number) {
         v-model="entryContent"
         :placeholder="creatingNewJournal ? 'Write your first journal entry (optional)...' : 'Write your journal entry...'"
       ></textarea>
-      
+         <!-- Mood Selector -->
+    <div class="mt-4">
+      <label class="block text-sm font-medium mb-2">How are you feeling?</label>
+      <div class="flex flex-wrap gap-2">
+        <button
+          v-for="mood in moods"
+          :key="mood.value"
+          type="button"
+          @click="selectedMood = selectedMood === mood.value ? '' : mood.value"
+          :class="[
+            'px-3 py-2 rounded-lg border-2 transition-all transform hover:scale-105',
+            selectedMood === mood.value 
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
+              : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+          ]"
+          :title="mood.label"
+        >
+          <span class="text-2xl">{{ mood.emoji }}</span>
+        </button>
+      </div>
+      <div v-if="selectedMood" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+        Mood: {{ moods.find(m => m.value === selectedMood)?.label }}
+      </div>
+    </div>
       <div class="mt-6 bg-neutral-900/80 rounded-lg shadow p-3">
         <label class="block font-semibold mb-1 text-sm text-gray-400 dark:text-gray-300">Live Markdown Preview:</label>
         <div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderedMarkdown"></div>
