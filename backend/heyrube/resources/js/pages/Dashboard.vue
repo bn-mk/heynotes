@@ -73,6 +73,110 @@ function openTagsDialog() {
 const draggedEntry = ref(null);
 const draggedOverEntry = ref(null);
 
+// Mobile swipe-to-delete state
+const touchStartX = ref(0);
+const touchStartY = ref(0);
+const touchDeltaX = ref(0);
+const swipingId = ref<string | null>(null);
+const isSwiping = ref(false);
+const suppressClick = ref(false);
+const vibratedForThisSwipe = ref(false);
+
+// Undo snackbar state
+const lastDeletedEntryId = ref<string | null>(null);
+let undoTimeout: number | null = null;
+const isUndoVisible = ref(false);
+
+function onTouchStart(entry: any, e: TouchEvent) {
+  swipingId.value = String(entry.id);
+  const t = e.touches[0];
+  touchStartX.value = t.clientX;
+  touchStartY.value = t.clientY;
+  touchDeltaX.value = 0;
+  isSwiping.value = false;
+  vibratedForThisSwipe.value = false;
+}
+
+function onTouchMove(e: TouchEvent) {
+  if (!swipingId.value) return;
+  const t = e.touches[0];
+  const dx = t.clientX - touchStartX.value;
+  const dy = t.clientY - touchStartY.value;
+  // Only consider horizontal swipes and provide feedback
+  if (Math.abs(dx) > Math.abs(dy)) {
+    e.preventDefault();
+    isSwiping.value = true;
+    touchDeltaX.value = dx;
+    if (dx < -80 && !vibratedForThisSwipe.value && 'vibrate' in navigator) {
+      try { navigator.vibrate(20); } catch {}
+      vibratedForThisSwipe.value = true;
+    }
+  }
+}
+
+async function onTouchEnd(entry: any, _e: TouchEvent) {
+  if (!swipingId.value) return;
+  const dx = touchDeltaX.value;
+  swipingId.value = null;
+  isSwiping.value = false;
+  touchDeltaX.value = 0;
+  if (dx < -80) {
+    // Significant left swipe: delete with undo snackbar
+    suppressClick.value = true;
+    await deleteEntryWithUndo(entry);
+    setTimeout(() => (suppressClick.value = false), 0);
+  }
+}
+
+function cardSwipeStyle(entry: any) {
+  if (isSwiping.value && swipingId.value === String(entry.id)) {
+    const x = Math.min(0, touchDeltaX.value);
+    return { transform: `translateX(${x}px)` };
+    }
+  return {};
+}
+
+async function deleteEntryWithUndo(entry: any) {
+  const journalId = journalStore.selectedJournalId;
+  if (!journalId) return;
+  const success = await journalStore.deleteEntry(journalId, entry.id);
+  if (success) {
+    lastDeletedEntryId.value = String(entry.id);
+    notificationMessage.value = 'Entry moved to trash';
+    showNotificationFlag.value = true;
+    isUndoVisible.value = true;
+    if ('vibrate' in navigator) {
+      try { navigator.vibrate(30); } catch {}
+    }
+    if (undoTimeout) window.clearTimeout(undoTimeout);
+    undoTimeout = window.setTimeout(() => {
+      isUndoVisible.value = false;
+      showNotificationFlag.value = false;
+      lastDeletedEntryId.value = null;
+    }, 4000);
+  }
+}
+
+async function undoDelete() {
+  if (!lastDeletedEntryId.value) return;
+  await journalStore.restoreEntry(lastDeletedEntryId.value);
+  // cancel any pending hide
+  if (undoTimeout) { window.clearTimeout(undoTimeout); undoTimeout = null; }
+  notificationMessage.value = 'Entry restored';
+  isUndoVisible.value = false;
+  showNotificationFlag.value = true;
+  lastDeletedEntryId.value = null;
+  setTimeout(() => { showNotificationFlag.value = false; }, 2000);
+}
+
+function onCardClick(entry: any, _e: MouseEvent) {
+  if (suppressClick.value) {
+    // Swiped; don’t open editor
+    return;
+  }
+  handleEditEntry(entry);
+}
+
 const sortedEntries = computed(() => {
   const entries = journalStore.selectedJournal?.entries || [];
   // First sort by display_order if it exists, then by created_at
@@ -419,7 +523,11 @@ onMounted(() => {
             @dragenter="handleDragEnter(entry, $event)"
             @dragleave="handleDragLeave($event)"
             @drop="handleDrop(entry, $event)"
-            @click="handleEditEntry(entry)"
+            @click="onCardClick(entry, $event)"
+            @touchstart="onTouchStart(entry, $event)"
+            @touchmove="onTouchMove($event)"
+            @touchend="onTouchEnd(entry, $event)"
+            :style="cardSwipeStyle(entry)"
           >
           <div class="p-4 flex flex-col relative">
               <!-- Mood Emoji Display -->
@@ -482,10 +590,18 @@ onMounted(() => {
     >
       <div
         v-if="showNotificationFlag"
-        class="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 z-50"
+        class="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-3 z-50"
       >
-        <Check class="w-4 h-4 text-green-400" />
-        {{ notificationMessage }}
+        <Check v-if="!isUndoVisible || notificationMessage === 'Entry restored'" class="w-4 h-4 text-green-400" />
+        <Trash2 v-else class="w-4 h-4 text-red-400" />
+        <span>{{ notificationMessage }}</span>
+        <button
+          v-if="isUndoVisible"
+          class="ml-2 inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-white/10 hover:bg-white/20"
+          @click="undoDelete"
+        >
+          Undo
+        </button>
       </div>
     </Transition>
   </AppLayout>
