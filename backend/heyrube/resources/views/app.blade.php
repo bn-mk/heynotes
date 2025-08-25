@@ -38,7 +38,7 @@
 
         <link rel="preconnect" href="https://fonts.bunny.net" />
         <link href="https://fonts.bunny.net/css?family=euclid-circular-a:400,500,600,700|tangerine:400,700" rel="stylesheet" />
-
+        <link rel="stylesheet" href="https://jspreadsheet.com/v8/jspreadsheet.css" type="text/css" />
         @routes
         @vite(['resources/js/app.ts', "resources/js/pages/{$page['component']}.vue"])
         @inertiaHead

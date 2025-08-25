@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, nextTick, onUnmounted } from 'vue';
 import { useJournalStore } from '@/stores/journals';
 import MarkdownIt from 'markdown-it';
 import { Plus, X, Check } from 'lucide-vue-next';
+import jspreadsheet from 'jspreadsheet-ce';
 
 // PROPS & STORE
-const props = defineProps({ 
+const props = defineProps({
   entryToEdit: { type: Object, default: null },
   createNewJournal: { type: Boolean, default: false }
 });
@@ -19,15 +20,68 @@ const selectedJournalId = ref(props.createNewJournal ? 'new' : journalStore.sele
 const entryContent = ref('');
 const newJournalTitle = ref('');
 const errors = ref<{ content?: string, title?: string }>({});
-const cardType = ref<'text' | 'checkbox'>('text');
+const cardType = ref<'text' | 'checkbox' | 'spreadsheet'>('text');
 const checkboxItems = ref<Array<{ text: string; checked: boolean }>>([]);
+const spreadsheetData = ref('');
 const newCheckboxItem = ref('');
 const selectedMood = ref<string>('');
 // Tags state
 const selectedTags = ref<string[]>([]);
 const tagFilter = ref('');
 
-// Mood options with emojis
+const spreadsheetContainer = ref<HTMLDivElement | null>(null);
+let spreadsheetInstance: any = null;
+let darkModeObserver: MutationObserver | null = null;
+
+watch(cardType, async (newType, oldType) => {
+  if (oldType === 'spreadsheet' && spreadsheetInstance) {
+    spreadsheetInstance.destroy();
+    spreadsheetInstance = null;
+  }
+
+  if (newType === 'spreadsheet') {
+    await nextTick();
+    if (spreadsheetContainer.value) {
+      const isDarkMode = document.documentElement.classList.contains('dark');
+      if (isDarkMode) {
+        spreadsheetContainer.value.classList.add('jspreadsheet_dark');
+      } else {
+        spreadsheetContainer.value.classList.remove('jspreadsheet_dark');
+      }
+
+      try {
+        const initialData = spreadsheetData.value.trim() ? JSON.parse(spreadsheetData.value) : [[]];
+        spreadsheetInstance = jspreadsheet(spreadsheetContainer.value, {
+          data: initialData,
+          minDimensions: [5, 10],
+          tableOverflow: true,
+          tableWidth: '100%',
+          tableHeight: '400px',
+          allowInsertColumn: true,
+          allowInsertRow: true,
+          allowDeleteColumn: true,
+          allowDeleteRow: true,
+          defaultColWidth: 120,
+        });
+      } catch (e) {
+        console.error('Failed to parse spreadsheet data:', e);
+        spreadsheetInstance = jspreadsheet(spreadsheetContainer.value, {
+          data: [[]],
+          minDimensions: [10, 5],
+        });
+      }
+    }
+  }
+});
+
+
+// When submitting, get data from spreadsheet
+async function beforeSubmit() {
+  if (cardType.value === 'spreadsheet' && spreadsheetInstance) {
+    spreadsheetData.value = JSON.stringify(spreadsheetInstance.getData());
+  }
+  submit();
+}
 const moods = [
   { emoji: '😊', label: 'Happy', value: 'happy' },
   { emoji: '😔', label: 'Sad', value: 'sad' },
@@ -54,8 +108,10 @@ function defaultPrefill() {
     selectedJournalId.value = props.entryToEdit.journal_id || journalStore.selectedJournalId || '';
     cardType.value = props.entryToEdit.card_type || 'text';
     selectedMood.value = props.entryToEdit.mood || '';
-    if (props.entryToEdit.card_type === 'checkbox' && props.entryToEdit.checkbox_items) {
+if (props.entryToEdit.card_type === 'checkbox' && props.entryToEdit.checkbox_items) {
       checkboxItems.value = [...props.entryToEdit.checkbox_items];
+    } else if (props.entryToEdit.card_type === 'spreadsheet') {
+      spreadsheetData.value = props.entryToEdit.content || '';
     } else {
       entryContent.value = props.entryToEdit.content || '';
     }
@@ -90,6 +146,28 @@ onMounted(() => {
     const j = journalStore.journals.find(j => j.id === selectedJournalId.value);
     selectedTags.value = [...(j?.tags || [])];
   }
+
+  darkModeObserver = new MutationObserver(() => {
+    if (spreadsheetContainer.value) {
+      const isDarkMode = document.documentElement.classList.contains('dark');
+      if (isDarkMode) {
+        spreadsheetContainer.value.classList.add('jspreadsheet_dark');
+      } else {
+        spreadsheetContainer.value.classList.remove('jspreadsheet_dark');
+      }
+    }
+  });
+
+  darkModeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+});
+
+onUnmounted(() => {
+  if (darkModeObserver) {
+    darkModeObserver.disconnect();
+  }
 });
 
 // HELPERS
@@ -117,11 +195,14 @@ const buttonLabel = computed(() => {
 });
 
 function hasContent(): boolean {
-  if (cardType.value === 'text') {
+if (cardType.value === 'text') {
     return entryContent.value.trim().length > 0;
-  } else {
+  } else if (cardType.value === 'checkbox') {
     return checkboxItems.value.length > 0;
+  } else if (cardType.value === 'spreadsheet') {
+    return spreadsheetData.value.trim().length > 0;
   }
+  return false;
 }
 const discardLabel = computed(() => isEditMode() ? 'Cancel' : 'Discard');
 
@@ -212,10 +293,12 @@ async function submit() {
         mood: selectedMood.value || null
       };
       
-      if (cardType.value === 'text') {
+if (cardType.value === 'text') {
         entryPayload.content = entryContent.value;
       } else if (cardType.value === 'checkbox') {
         entryPayload.checkbox_items = checkboxItems.value;
+      } else if (cardType.value === 'spreadsheet') {
+        entryPayload.content = spreadsheetData.value;
       }
       
       // If using existing journal, update its tags if changed
@@ -246,10 +329,12 @@ async function submit() {
           mood: selectedMood.value || null
         };
         
-        if (cardType.value === 'text') {
+if (cardType.value === 'text') {
           createPayload.content = entryContent.value;
         } else if (cardType.value === 'checkbox') {
           createPayload.checkbox_items = checkboxItems.value;
+        } else if (cardType.value === 'spreadsheet') {
+          createPayload.content = spreadsheetData.value;
         }
         
         const response = await fetch(`/api/journals/${journalId}/entries`, {
@@ -290,7 +375,7 @@ function toggleCheckbox(index: number) {
 }
 </script>
 <template>
-  <form class="flex flex-col flex-1 h-full w-full gap-4 rounded-xl p-4 bg-white/60 dark:bg-zinc-900/60" @submit.prevent="submit">
+<form class="flex flex-col flex-1 h-full w-full gap-4 rounded-xl p-4 bg-white/60 dark:bg-zinc-900/60" @submit.prevent="beforeSubmit">
     <label class="block mb-2 font-semibold">Journal...</label>
     <select
       class="block w-full mb-4 border rounded px-2 py-1 bg-black text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -330,7 +415,7 @@ function toggleCheckbox(index: number) {
       >
         Text Entry
       </button>
-      <button
+<button
         type="button"
         @click="cardType = 'checkbox'"
         :class="[
@@ -341,6 +426,18 @@ function toggleCheckbox(index: number) {
         ]"
       >
         Checklist
+      </button>
+      <button
+        type="button"
+        @click="cardType = 'spreadsheet'"
+        :class="[
+          'px-4 py-2 rounded transition-colors',
+          cardType === 'spreadsheet' 
+            ? 'bg-blue-600 text-white' 
+            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+        ]"
+      >
+        Spreadsheet
       </button>
     </div>
     
@@ -367,6 +464,7 @@ function toggleCheckbox(index: number) {
     </div>
     
     <!-- Text Entry Content -->
+<div v-if="cardType === 'spreadsheet'" ref="spreadsheetContainer" class="w-full border rounded overflow-auto max-h-[400px] dark:border-zinc-700"></div>
     <div v-if="cardType === 'text'">
       <textarea
         class="block w-full border rounded px-2 py-2 min-h-[240px]"

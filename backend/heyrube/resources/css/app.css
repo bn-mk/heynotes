@@ -1,3 +1,4 @@
+
 @import 'tailwindcss';
 
 @import 'tw-animate-css';
@@ -167,4 +168,48 @@
         @apply bg-background text-foreground;
     }
 
+}
+
+/* 
+  Custom Jspreadsheet Theme
+*/
+
+/* Light Mode */
+.jspreadsheet {
+  --jss-main-border-color: #e0e0e0; /* Lighter cell borders */
+  --jss-secondary-border-color: #c1c1c1; /* Header and frozen cell borders */
+  --jss-highlight-bg-color: #d7e9f7; /* Active cell background */
+  --jss-highlight-header-color: #a5c7e4; /* Active header background */
+  --jss-main-font-color: #333;
+}
+
+/* Dark Mode */
+.jspreadsheet_dark {
+  --jss-main-bg-color: #1f2937; /* Dark background */
+  --jss-main-border-color: #4b5563; /* Softer borders for dark mode */
+  --jss-secondary-border-color: #6b7280;
+  --jss-highlight-bg-color: rgba(59, 130, 246, 0.4); /* Brighter highlight */
+  --jss-highlight-header-color: #2563eb;
+  --jss-main-font-color: #e5e7eb;
+  --jss-secondary-font-color: #9ca3af;
+}
+
+/* Explicitly style the active cell border to make it stand out */
+.jspreadsheet .jss-cell-selected {
+  box-shadow: inset 0 0 0 2px #3b82f6 !important;
+}
+
+.jspreadsheet_dark .jss-cell-selected {
+  box-shadow: inset 0 0 0 2px #60a5fa !important; /* Lighter blue for dark mode */
+}
+
+/* Force border colors to be applied */
+.jspreadsheet td,
+.jspreadsheet th {
+  border-color: var(--jss-main-border-color) !important;
+}
+
+.jspreadsheet_dark td,
+.jspreadsheet_dark th {
+  border-color: var(--jss-main-border-color) !important;
 }

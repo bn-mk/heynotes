@@ -1,4 +1,8 @@
 import '../css/app.css';
+import 'jsuites/dist/jsuites.css';
+import 'jspreadsheet-ce/dist/jspreadsheet.css';
+//import 'jspreadsheet-ce/dist/jspreadsheet.theme.css';
+import '../css/jspreadsheet-overrides.css';
 
 import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';

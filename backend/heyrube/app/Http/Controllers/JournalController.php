@@ -87,7 +87,7 @@ class JournalController extends Controller
     {
         $validated = $request->validate([
             'content' => 'required_if:card_type,text|nullable|string',
-            'card_type' => 'required|in:text,checkbox',
+            'card_type' => 'required|in:text,checkbox,spreadsheet',
             'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
             'checkbox_items.*.text' => 'required_with:checkbox_items|string',
             'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',
@@ -104,7 +104,7 @@ class JournalController extends Controller
             'user_id' => $journal->user_id,
         ];
         
-        if ($validated['card_type'] === 'text') {
+        if ($validated['card_type'] === 'text' || $validated['card_type'] === 'spreadsheet') {
             $entryData['content'] = $validated['content'];
         } else if ($validated['card_type'] === 'checkbox') {
             $entryData['checkbox_items'] = $validated['checkbox_items'] ?? [];
@@ -172,7 +172,7 @@ class JournalController extends Controller
         $validated = $request->validate([
             'content' => 'required_if:card_type,text|nullable|string',
             'journal_id' => 'sometimes|exists:journals,id',
-            'card_type' => 'sometimes|in:text,checkbox',
+            'card_type' => 'sometimes|in:text,checkbox,spreadsheet',
             'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
             'checkbox_items.*.text' => 'required_with:checkbox_items|string',
             'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',
@@ -205,7 +205,7 @@ class JournalController extends Controller
         // Update based on card type
         $cardType = $validated['card_type'] ?? $entry->card_type ?? 'text';
         
-        if ($cardType === 'text') {
+        if ($cardType === 'text' || $cardType === 'spreadsheet') {
             $updateData['content'] = $validated['content'];
             $updateData['checkbox_items'] = null;
         } else if ($cardType === 'checkbox') {

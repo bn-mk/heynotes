@@ -9,6 +9,7 @@ import { onMounted, onUnmounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
 import CreateEntryForm from '@/components/CreateEntryForm.vue';
+import Spreadsheet from '@/components/Spreadsheet.vue';
 import DeleteEntryButton from '@/components/DeleteEntryButton.vue';
 import LinkEntryButton from '@/components/LinkEntryButton.vue';
 
@@ -554,7 +555,7 @@ class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inli
 <div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
               </div>
               
-              <!-- Checkbox Card Content -->
+<!-- Checkbox Card Content -->
               <div v-else-if="entry.card_type === 'checkbox'" class="pr-8" :class="{ 'pl-8': entry.mood }">
                 <div class="space-y-0">
                   <div 
@@ -578,6 +579,11 @@ class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inli
                     {{ getChecklistProgress(entry.checkbox_items) }}
                   </div>
                 </div>
+              </div>
+
+              <!-- Spreadsheet Card Content -->
+              <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-8" :class="{ 'pl-8': entry.mood }">
+                <Spreadsheet :data="entry.content" />
               </div>
               <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
             </div>
