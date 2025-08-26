@@ -2,8 +2,10 @@
 import { ref, computed, watch, onMounted, nextTick, onUnmounted } from 'vue';
 import { useJournalStore } from '@/stores/journals';
 import MarkdownIt from 'markdown-it';
-import { Plus, X, Check } from 'lucide-vue-next';
+import { Plus, X, Check, Pin } from 'lucide-vue-next';
 import jspreadsheet from 'jspreadsheet-ce';
+import LinkEntryButton from '@/components/LinkEntryButton.vue';
+import DeleteEntryButton from '@/components/DeleteEntryButton.vue';
 
 // PROPS & STORE
 const props = defineProps({
@@ -25,11 +27,13 @@ const checkboxItems = ref<Array<{ text: string; checked: boolean }>>([]);
 const spreadsheetData = ref('');
 const newCheckboxItem = ref('');
 const selectedMood = ref<string>('');
+const pinAfterSave = ref(false);
 // Tags state
 const selectedTags = ref<string[]>([]);
 const tagFilter = ref('');
 
 const spreadsheetContainer = ref<HTMLDivElement | null>(null);
+const isPinned = ref<boolean>(!!props.entryToEdit?.pinned);
 let spreadsheetInstance: any = null;
 let darkModeObserver: MutationObserver | null = null;
 
@@ -108,7 +112,8 @@ function defaultPrefill() {
     selectedJournalId.value = props.entryToEdit.journal_id || journalStore.selectedJournalId || '';
     cardType.value = props.entryToEdit.card_type || 'text';
     selectedMood.value = props.entryToEdit.mood || '';
-if (props.entryToEdit.card_type === 'checkbox' && props.entryToEdit.checkbox_items) {
+    isPinned.value = !!props.entryToEdit.pinned;
+    if (props.entryToEdit.card_type === 'checkbox' && props.entryToEdit.checkbox_items) {
       checkboxItems.value = [...props.entryToEdit.checkbox_items];
     } else if (props.entryToEdit.card_type === 'spreadsheet') {
       spreadsheetData.value = props.entryToEdit.content || '';
@@ -120,7 +125,7 @@ if (props.entryToEdit.card_type === 'checkbox' && props.entryToEdit.checkbox_ite
     selectedJournalId.value = 'new';
   }
 }
-watch(() => props.entryToEdit, defaultPrefill);
+watch(() => props.entryToEdit, (val) => { defaultPrefill(); isPinned.value = !!val?.pinned; });
 watch(() => props.createNewJournal, (newVal) => {
   if (newVal) {
     creatingNewJournal.value = true;
@@ -180,6 +185,36 @@ function authHeaders() {
 }
 function isEditMode() {
   return !!props.entryToEdit;
+}
+
+async function togglePinInForm() {
+  if (!isEditMode()) return;
+  const desired = !isPinned.value;
+  const xsrf = getCookie('XSRF-TOKEN') ?? '';
+  const jid = selectedJournalId.value || journalStore.selectedJournalId;
+  if (!jid) return;
+  try {
+    await fetch(`/api/journals/${jid}/entries/${props.entryToEdit.id}/pin`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-XSRF-TOKEN': xsrf,
+      },
+      body: JSON.stringify({ pinned: desired }),
+    });
+    isPinned.value = desired;
+    // Update store so dashboard re-renders behind the form
+    const journal = journalStore.journals.find(j => j.id === jid);
+    if (journal && journal.entries) {
+      const entry = journal.entries.find((e: any) => e.id === props.entryToEdit!.id);
+      if (entry) entry.pinned = desired;
+      const unpinned = journal.entries.filter((e: any) => !e.pinned);
+      unpinned.forEach((e: any, idx: number) => { e.display_order = idx; });
+    }
+  } catch (e) {
+    // noop
+  }
 }
 
 // UI LABELS
@@ -349,8 +384,30 @@ if (cardType.value === 'text') {
         if (journal) {
           if (!journal.entries) journal.entries = [];
           journal.entries.unshift(newEntry);
-          // Update local manual order to reflect visible order
-          journal.entries.forEach((e: any, idx: number) => { e.display_order = idx; });
+          if (pinAfterSave.value) {
+            const xsrf = getCookie('XSRF-TOKEN') ?? '';
+            try {
+              await fetch(`/api/journals/${journalId}/entries/${newEntry.id}/pin`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-XSRF-TOKEN': xsrf,
+                },
+                body: JSON.stringify({ pinned: true }),
+              });
+              const entryRef = journal.entries.find((e: any) => e.id === newEntry.id);
+              if (entryRef) {
+                entryRef.pinned = true;
+                entryRef.display_order = null;
+              }
+              const unpinned = journal.entries.filter((e: any) => !e.pinned);
+              unpinned.forEach((e: any, idx: number) => { e.display_order = idx; });
+            } catch {}
+          } else {
+            // Update local manual order to reflect visible order
+            journal.entries.forEach((e: any, idx: number) => { e.display_order = idx; });
+          }
         }
         journalStore.stopCreatingEntry();
       }
@@ -378,6 +435,19 @@ function toggleCheckbox(index: number) {
 </script>
 <template>
 <form class="flex flex-col flex-1 h-full w-full gap-4 rounded-xl p-4 bg-white/60 dark:bg-zinc-900/60" @submit.prevent="beforeSubmit">
+    <!-- Header with actions (edit mode) -->
+    <div v-if="isEditMode()" class="flex items-center justify-between -mb-2">
+      <h2 class="text-base font-semibold">{{ formTitle }}</h2>
+      <div class="flex items-center gap-1">
+        <!-- Pin toggle -->
+        <button type="button" class="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60" :title="isPinned ? 'Unpin' : 'Pin'" @click="togglePinInForm">
+          <Pin class="h-4 w-4" :class="isPinned ? 'text-amber-500' : 'text-zinc-500'" />
+        </button>
+        <!-- Link and Delete -->
+        <LinkEntryButton v-if="props.entryToEdit" :entry-id="String(props.entryToEdit.id)" />
+        <DeleteEntryButton v-if="props.entryToEdit" :entry-id="String(props.entryToEdit.id)" :journal-id="selectedJournalId" @deleted="emit('cancel')" />
+      </div>
+    </div>
     <label class="block mb-2 font-semibold">Journal...</label>
     <select
       class="block w-full mb-4 border rounded px-2 py-1 bg-black text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -417,7 +487,7 @@ function toggleCheckbox(index: number) {
       >
         Text Entry
       </button>
-<button
+      <button
         type="button"
         @click="cardType = 'checkbox'"
         :class="[
@@ -442,7 +512,18 @@ function toggleCheckbox(index: number) {
         Spreadsheet
       </button>
     </div>
-    
+
+    <!-- Pin after save (create mode) -->
+    <div v-if="!isEditMode()" class="flex items-center justify-end -mt-2 mb-2">
+      <label class="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
+        <input type="checkbox" v-model="pinAfterSave" class="accent-amber-500" />
+        <span class="inline-flex items-center gap-1">
+          <Pin class="h-4 w-4" :class="pinAfterSave ? 'text-amber-500' : 'text-zinc-500'" />
+          Pin after save
+        </span>
+      </label>
+    </div>
+
 
     <!-- Tags Selector (applies to the selected journal) -->
     <div v-if="!isEditMode()" class="mb-4">

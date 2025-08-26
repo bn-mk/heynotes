@@ -674,10 +674,10 @@ onUnmounted(() => {
                   </div>
 
                   <!-- Content -->
-                  <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8 pl-8">
+                  <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-20 pl-8">
                     <div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
                   </div>
-                  <div v-else-if="entry.card_type === 'checkbox'" class="pr-8 pl-8">
+                  <div v-else-if="entry.card_type === 'checkbox'" class="pr-20 pl-8">
                     <div class="space-y-0">
                       <div v-for="(item, idx) in (entry.checkbox_items || [])" :key="idx" class="flex items-center gap-0.5 text-sm leading-tight">
                         <CheckSquare v-if="item.checked" class="w-4 h-4 text-green-600 flex-shrink-0" />
@@ -690,7 +690,7 @@ onUnmounted(() => {
                       <div class="text-xs text-gray-500">{{ getChecklistProgress(entry.checkbox_items) }}</div>
                     </div>
                   </div>
-                  <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-8 pl-8">
+                  <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-20 pl-8">
                     <Spreadsheet :data="entry.content" />
                   </div>
                   <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
@@ -740,10 +740,10 @@ onUnmounted(() => {
                 </div>
 
                 <!-- Content -->
-                <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
+                <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-20 pl-8">
                   <div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
                 </div>
-                <div v-else-if="entry.card_type === 'checkbox'" class="pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
+                <div v-else-if="entry.card_type === 'checkbox'" class="pr-20 pl-8">
                   <div class="space-y-0">
                     <div v-for="(item, idx) in (entry.checkbox_items || [])" :key="idx" class="flex items-center gap-0.5 text-sm leading-tight">
                       <CheckSquare v-if="item.checked" class="w-4 h-4 text-green-600 flex-shrink-0" />
@@ -756,7 +756,7 @@ onUnmounted(() => {
                     <div class="text-xs text-gray-500">{{ getChecklistProgress(entry.checkbox_items) }}</div>
                   </div>
                 </div>
-                <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
+                <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-20 pl-8">
                   <Spreadsheet :data="entry.content" />
                 </div>
                 <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
