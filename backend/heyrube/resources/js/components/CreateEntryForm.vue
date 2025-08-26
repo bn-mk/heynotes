@@ -349,6 +349,8 @@ if (cardType.value === 'text') {
         if (journal) {
           if (!journal.entries) journal.entries = [];
           journal.entries.unshift(newEntry);
+          // Update local manual order to reflect visible order
+          journal.entries.forEach((e: any, idx: number) => { e.display_order = idx; });
         }
         journalStore.stopCreatingEntry();
       }

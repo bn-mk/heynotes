@@ -303,6 +303,8 @@ export const useJournalStore = defineStore('journal', {
             if (journal && journal.entries) {
                 const idx = journal.entries.findIndex(e => e.id === entryId);
                 if (idx > -1) journal.entries.splice(idx, 1);
+                // Renumber local display_order to match current visible order
+                journal.entries.forEach((e: any, i: number) => { e.display_order = i; });
             }
             // Fetch updated trash to include the deleted entry
             await this.fetchTrashed();

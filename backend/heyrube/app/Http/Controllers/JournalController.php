@@ -17,11 +17,19 @@ class JournalController extends Controller
     // List all journals for the current user
     public function index()
     {
-        $journals = Auth::user()->journals()->with('entries')->orderBy('created_at', 'desc')->get();
+        $journals = Auth::user()
+            ->journals()
+            ->with(['entries' => function ($q) {
+                $q->orderBy('created_at', 'desc');
+            }])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
         return Inertia::render('Dashboard', [
             'journals' => $journals,
         ]);
     }
+    
 
     // Show the form for creating a new journal.
     public function create()
@@ -94,11 +102,8 @@ class JournalController extends Controller
             'mood' => 'nullable|string|in:happy,sad,tired,angry,anxious,grateful,calm,thoughtful,confident,stressed,loved,neutral',
         ]);
         
-        // Get the highest display_order for this journal's entries
-        $maxOrder = $journal->entries()->max('display_order') ?? -1;
-        
+        // New entries should appear at the very top and manual order should be updated.
         $entryData = [
-            'display_order' => $maxOrder + 1,
             'card_type' => $validated['card_type'] ?? 'text',
             'mood' => $validated['mood'] ?? null,
             'user_id' => $journal->user_id,
@@ -113,6 +118,11 @@ class JournalController extends Controller
         }
         
         $entry = $journal->entries()->create($entryData);
+        // Renumber to put the new entry at the top and compact orders
+        $this->renumberJournalEntries($journal, (string) ($entry->_id ?? $entry->id));
+        
+        // Return the created entry with its updated display_order
+        $entry->refresh();
         return response()->json($entry, 201);
     }
     
@@ -163,6 +173,8 @@ class JournalController extends Controller
     public function destroyEntry(Journal $journal, JournalEntry $entry)
     {
         $entry->delete();
+        // Renumber remaining entries to keep a compact manual order
+        $this->renumberJournalEntries($journal);
         return response()->json(null, 204);
     }
 
@@ -357,7 +369,6 @@ class JournalController extends Controller
         foreach ($validated['entries'] as $entryData) {
             JournalEntry::where('_id', $entryData['id'])
                 ->where('journal_id', $journal->_id)
-                ->orderBy('created_at', 'desc')
                 ->update(['display_order' => $entryData['display_order']]);
         }
 
@@ -412,6 +423,57 @@ class JournalController extends Controller
         return response()->json(['message' => 'Entry restored successfully', 'entry' => $entry->load('journal')]);
     }
     
+    private function renumberJournalEntries(Journal $journal, ?string $pinFirstId = null): void
+    {
+        // Fetch active entries
+        $entries = JournalEntry::where('journal_id', $journal->_id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        if ($entries->isEmpty()) {
+            return;
+        }
+
+        // Split into ordered and unordered groups
+        $ordered = $entries->filter(function ($e) {
+            return !is_null($e->display_order);
+        })->sortBy('display_order')->values();
+
+        $unordered = $entries->filter(function ($e) {
+            return is_null($e->display_order);
+        })->sortByDesc(function ($e) {
+            $c = $e->created_at ?? null;
+            if ($c instanceof \Carbon\Carbon) return $c->getTimestamp();
+            if (is_numeric($c)) return (int)$c;
+            if (is_string($c)) return strtotime($c) ?: 0;
+            return 0;
+        })->values();
+
+        $merged = $ordered->concat($unordered)->values();
+
+        // If specified, move the pinned entry to the top
+        if ($pinFirstId) {
+            $merged = $merged->reject(function ($e) use ($pinFirstId) {
+                return (string) ($e->_id ?? $e->id) === (string) $pinFirstId;
+            })->values();
+            $pinned = $entries->first(function ($e) use ($pinFirstId) {
+                return (string) ($e->_id ?? $e->id) === (string) $pinFirstId;
+            });
+            if ($pinned) {
+                $merged->prepend($pinned);
+            }
+        }
+
+        // Write compact display_order
+        $i = 0;
+        foreach ($merged as $e) {
+            $newOrder = $i++;
+            if ($e->display_order !== $newOrder) {
+                JournalEntry::where('_id', $e->_id)->update(['display_order' => $newOrder]);
+            }
+        }
+    }
+
     // Permanently delete a soft-deleted entry
     public function forceDestroyEntry($entryId)
     {

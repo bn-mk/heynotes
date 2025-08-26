@@ -181,29 +181,20 @@ function onCardClick(entry: any, _e: MouseEvent) {
 
 const sortedEntries = computed(() => {
   const entries = journalStore.selectedJournal?.entries || [];
-  if (entries.length === 0) return [] as any[];
-
-  const hasAnyOrder = entries.some((e: any) => e.display_order !== undefined);
-
-  if (!hasAnyOrder) {
-    // Default: newest first by created_at
+  // Default: date-desc; if any entry has a manual display_order, use that order
+  if (entries.some((e: any) => e.display_order !== undefined && e.display_order !== null)) {
     return entries
       .slice()
-      .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      .sort((a: any, b: any) => {
+        const ao = (a.display_order ?? Number.MAX_SAFE_INTEGER) as number;
+        const bo = (b.display_order ?? Number.MAX_SAFE_INTEGER) as number;
+        // Stable-ish: fallback to date-desc when orders tie/undefined
+        return ao - bo || (new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      });
   }
-
-  // When any manual order exists:
-  // - Keep newest unordered (no display_order) entries at the top by date
-  // - Followed by ordered entries by display_order asc
-  const unordered = entries
-    .filter((e: any) => e.display_order === undefined)
+  return entries
+    .slice()
     .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-
-  const ordered = entries
-    .filter((e: any) => e.display_order !== undefined)
-    .sort((a: any, b: any) => (a.display_order as number) - (b.display_order as number));
-
-  return [...unordered, ...ordered];
 });
 
 function handleEditTitle() {
@@ -397,10 +388,6 @@ async function saveEntryOrder(entries: any[]) {
       body: JSON.stringify({ entries: orderData })
     });
     
-    if (!response.ok) {
-      console.error('Failed to save entry order');
-      // Optionally, revert the order in the UI
-    }
   } catch (error) {
     console.error('Error saving entry order:', error);
   }
