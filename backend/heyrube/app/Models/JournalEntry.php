@@ -18,6 +18,7 @@ class JournalEntry extends Model
         'user_id',
         'content',
         'mood',
+        'pinned',
         'display_order',
         'card_type',
         'checkbox_items',
@@ -27,6 +28,7 @@ class JournalEntry extends Model
     
     protected $casts = [
         'checkbox_items' => 'array',
+        'pinned' => 'boolean',
     ];
 
     protected $dates = ['deleted_at'];

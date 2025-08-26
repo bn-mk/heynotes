@@ -4,7 +4,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import Card from '@/components/ui/card/Card.vue';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Check, Square, CheckSquare, Trash2 } from 'lucide-vue-next';
+import { Check, Square, CheckSquare, Trash2, Pin } from 'lucide-vue-next';
 import { onMounted, onUnmounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
@@ -181,20 +181,27 @@ function onCardClick(entry: any, _e: MouseEvent) {
 
 const sortedEntries = computed(() => {
   const entries = journalStore.selectedJournal?.entries || [];
-  // Default: date-desc; if any entry has a manual display_order, use that order
-  if (entries.some((e: any) => e.display_order !== undefined && e.display_order !== null)) {
-    return entries
+  const toTs = (e: any) => new Date(e.created_at || 0).getTime();
+  const pinned = entries
+    .filter((e: any) => !!e.pinned)
+    .slice()
+    .sort((a: any, b: any) => toTs(b) - toTs(a));
+
+  const unpinned = entries.filter((e: any) => !e.pinned);
+  let unpinnedSorted: any[];
+  if (unpinned.some((e: any) => e.display_order !== undefined && e.display_order !== null)) {
+    unpinnedSorted = unpinned
       .slice()
       .sort((a: any, b: any) => {
         const ao = (a.display_order ?? Number.MAX_SAFE_INTEGER) as number;
         const bo = (b.display_order ?? Number.MAX_SAFE_INTEGER) as number;
-        // Stable-ish: fallback to date-desc when orders tie/undefined
-        return ao - bo || (new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        return ao - bo || (toTs(b) - toTs(a));
       });
+  } else {
+    unpinnedSorted = unpinned.slice().sort((a: any, b: any) => toTs(b) - toTs(a));
   }
-  return entries
-    .slice()
-    .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+  return [...pinned, ...unpinnedSorted];
 });
 
 function handleEditTitle() {
@@ -269,6 +276,40 @@ function showNotification(message: string) {
   }, 3000);
 }
 
+// Toggle pin status via API and update local state
+async function togglePin(entry: any) {
+  const getCookie = (name: string) => {
+    const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
+    return match ? decodeURIComponent(match[3]) : null;
+  };
+  const xsrf = getCookie('XSRF-TOKEN') ?? '';
+  const journalId = journalStore.selectedJournalId;
+  if (!journalId) return;
+  try {
+    const desired = !entry.pinned;
+    await fetch(`/api/journals/${journalId}/entries/${entry.id}/pin`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-XSRF-TOKEN': xsrf,
+      },
+      body: JSON.stringify({ pinned: desired }),
+    });
+    // Update local
+    entry.pinned = desired;
+    const journal = journalStore.journals.find(j => j.id === journalId);
+    if (journal) {
+      // Ensure unpinned orders are compact
+      const unpinned = (journal.entries || []).filter((e: any) => !e.pinned);
+      unpinned.forEach((e: any, idx: number) => { e.display_order = idx; });
+    }
+    await saveEntryOrder();
+  } catch (e) {
+    console.error('Failed to toggle pin', e);
+  }
+}
+
 // Drag and Drop handlers
 function handleDragStart(entry: any, event: DragEvent) {
   draggedEntry.value = entry;
@@ -316,14 +357,18 @@ async function handleDrop(targetEntry: any, event: DragEvent) {
     const targetIndex = entries.findIndex(e => e.id === targetEntry.id);
     
     if (draggedIndex !== -1 && targetIndex !== -1) {
-      // Reorder the entries array
+      // If crossing pin boundary, adopt target's pinned state
+      if (!!draggedEntry.value.pinned !== !!targetEntry.pinned) {
+        draggedEntry.value.pinned = !!targetEntry.pinned;
+      }
+
+      // Reorder in the visible array
       const [removed] = entries.splice(draggedIndex, 1);
       entries.splice(targetIndex, 0, removed);
       
-      // Update display_order for all entries
-      entries.forEach((entry, index) => {
-        entry.display_order = index;
-      });
+      // Recompute display_order only for unpinned entries in their current visible order
+      const unpinned = entries.filter((e: any) => !e.pinned);
+      unpinned.forEach((e: any, idx: number) => { e.display_order = idx; });
       
       // Update the journal's entries in the store
       const journal = journalStore.journals.find(j => j.id === journalStore.selectedJournalId);
@@ -331,8 +376,8 @@ async function handleDrop(targetEntry: any, event: DragEvent) {
         journal.entries = entries;
       }
       
-      // Persist the new order to the backend
-      await saveEntryOrder(entries);
+      // Persist the new order (with pinned flags) to the backend
+      await saveEntryOrder();
     }
   }
   
@@ -365,7 +410,7 @@ function getMoodEmoji(mood: string): string {
   return moodMap[mood] || '';
 }
 
-async function saveEntryOrder(entries: any[]) {
+async function saveEntryOrder() {
   const getCookie = (name: string) => {
     const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
     return match ? decodeURIComponent(match[3]) : null;
@@ -373,21 +418,28 @@ async function saveEntryOrder(entries: any[]) {
   const xsrf = getCookie('XSRF-TOKEN') ?? '';
   
   try {
-    const orderData = entries.map((entry, index) => ({
-      id: entry.id,
-      display_order: index
-    }));
-    
-    const response = await fetch(`/api/journals/${journalStore.selectedJournalId}/entries/reorder`, {
+    // Build payload with pinned flags and unpinned display_order
+    const visible = sortedEntries.value;
+    const orderData: any[] = [];
+    let unpinnedIndex = 0;
+    for (const e of visible) {
+      if (e.pinned) {
+        orderData.push({ id: e.id, pinned: true });
+      } else {
+        orderData.push({ id: e.id, display_order: unpinnedIndex, pinned: false });
+        unpinnedIndex++;
+      }
+    }
+
+    await fetch(`/api/journals/${journalStore.selectedJournalId}/entries/reorder`, {
       method: 'POST',
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        'X-XSRF-TOKEN': xsrf
+        'X-XSRF-TOKEN': xsrf,
       },
-      body: JSON.stringify({ entries: orderData })
+      body: JSON.stringify({ entries: orderData }),
     });
-    
   } catch (error) {
     console.error('Error saving entry order:', error);
   }
@@ -525,8 +577,15 @@ class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inli
             @touchend="onTouchEnd(entry, $event)"
           >
           <div class="p-4 flex flex-col relative">
+              <!-- Pin Icon -->
+              <div v-if="entry.pinned" class="absolute top-2 left-2 z-10">
+                <Pin class="w-4 h-4 text-amber-500" @click.stop="togglePin(entry)" />
+              </div>
+              <div v-else class="absolute top-2 left-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
+                <Pin class="w-4 h-4 text-gray-400 hover:text-amber-500" @click.stop="togglePin(entry)" />
+              </div>
               <!-- Mood Emoji Display -->
-              <div v-if="entry.mood" class="absolute top-2 left-2" :title="entry.mood">
+              <div v-if="entry.mood" class="absolute top-2" :class="entry.pinned ? 'left-8' : 'left-2'" :title="entry.mood">
                 <span class="text-lg">{{ getMoodEmoji(entry.mood) }}</span>
               </div>
               
@@ -538,12 +597,12 @@ class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inli
                 />
               </div>
               <!-- Text Card Content -->
-              <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8" :class="{ 'pl-8': entry.mood }">
+<div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
 <div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
               </div>
               
 <!-- Checkbox Card Content -->
-              <div v-else-if="entry.card_type === 'checkbox'" class="pr-8" :class="{ 'pl-8': entry.mood }">
+<div v-else-if="entry.card_type === 'checkbox'" class="pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
                 <div class="space-y-0">
                   <div 
                     v-for="(item, idx) in (entry.checkbox_items || [])"
@@ -569,7 +628,7 @@ class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inli
               </div>
 
               <!-- Spreadsheet Card Content -->
-              <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-8" :class="{ 'pl-8': entry.mood }">
+<div v-else-if="entry.card_type === 'spreadsheet'" class="pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
                 <Spreadsheet :data="entry.content" />
               </div>
               <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>

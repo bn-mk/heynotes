@@ -22,6 +22,7 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::post('journals/{journal}/entries/reorder', [JournalController::class, 'reorderEntries']);
     Route::delete('journals/{journal}/entries/{entry}', [JournalController::class, 'destroyEntry']);
     Route::put('journals/{journal}/entries/{entry}', [JournalController::class, 'updateEntry']);
+    Route::post('journals/{journal}/entries/{entry}/pin', [JournalController::class, 'pinEntry']);
     
     // Trash routes for journals
     Route::get('trash/journals', [JournalController::class, 'trash']);

@@ -352,10 +352,9 @@ class JournalController extends Controller
         return response()->json(['message' => 'Trash emptied successfully']);
     }
 
-    // Reorder journal entries
+    // Reorder journal entries (supports pinning)
     public function reorderEntries(Request $request, Journal $journal)
     {
-        // Check if the user owns this journal
         if ($journal->user_id !== Auth::id()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
@@ -363,16 +362,53 @@ class JournalController extends Controller
         $validated = $request->validate([
             'entries' => 'required|array',
             'entries.*.id' => 'required|string',
-            'entries.*.display_order' => 'required|integer|min:0',
+            'entries.*.display_order' => 'nullable|integer|min:0',
+            'entries.*.pinned' => 'nullable|boolean',
         ]);
 
         foreach ($validated['entries'] as $entryData) {
-            JournalEntry::where('_id', $entryData['id'])
-                ->where('journal_id', $journal->_id)
-                ->update(['display_order' => $entryData['display_order']]);
+            $query = JournalEntry::where('_id', $entryData['id'])
+                ->where('journal_id', $journal->_id);
+
+            $update = [];
+            if (array_key_exists('pinned', $entryData)) {
+                $update['pinned'] = (bool) $entryData['pinned'];
+            }
+            if (array_key_exists('display_order', $entryData)) {
+                // If pinned, ignore display_order and set null
+                if (isset($entryData['pinned']) && $entryData['pinned']) {
+                    $update['display_order'] = null;
+                } else {
+                    $update['display_order'] = $entryData['display_order'];
+                }
+            }
+            if (!empty($update)) {
+                $query->update($update);
+            }
         }
 
+        // Compact unpinned display_order
+        $this->renumberJournalEntries($journal);
+
         return response()->json(['message' => 'Entries reordered successfully']);
+    }
+
+    // Pin or unpin an entry
+    public function pinEntry(Request $request, Journal $journal, JournalEntry $entry)
+    {
+        if ($journal->user_id !== Auth::id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        $validated = $request->validate([
+            'pinned' => 'required|boolean',
+        ]);
+        $entry->update([
+            'pinned' => $validated['pinned'],
+            'display_order' => $validated['pinned'] ? null : $entry->display_order,
+        ]);
+        // Renumber unpinned after a change
+        $this->renumberJournalEntries($journal, $validated['pinned'] ? (string) ($entry->_id ?? $entry->id) : null);
+        return response()->json(['message' => 'Entry pin status updated']);
     }
     
     // Restore a soft-deleted entry
@@ -426,20 +462,28 @@ class JournalController extends Controller
     private function renumberJournalEntries(Journal $journal, ?string $pinFirstId = null): void
     {
         // Fetch active entries
-        $entries = JournalEntry::where('journal_id', $journal->_id)
+        $all = JournalEntry::where('journal_id', $journal->_id)
             ->whereNull('deleted_at')
             ->get();
 
-        if ($entries->isEmpty()) {
+        if ($all->isEmpty()) {
             return;
         }
 
-        // Split into ordered and unordered groups
-        $ordered = $entries->filter(function ($e) {
+        $pinned = $all->filter(function ($e) {
+            return (bool) ($e->pinned ?? false);
+        })->values();
+
+        $others = $all->reject(function ($e) {
+            return (bool) ($e->pinned ?? false);
+        })->values();
+
+        // Split unpinned into ordered and unordered groups
+        $ordered = $others->filter(function ($e) {
             return !is_null($e->display_order);
         })->sortBy('display_order')->values();
 
-        $unordered = $entries->filter(function ($e) {
+        $unordered = $others->filter(function ($e) {
             return is_null($e->display_order);
         })->sortByDesc(function ($e) {
             $c = $e->created_at ?? null;
@@ -451,20 +495,26 @@ class JournalController extends Controller
 
         $merged = $ordered->concat($unordered)->values();
 
-        // If specified, move the pinned entry to the top
+        // If specified, move the specified entry to the top of UNPINNED segment
         if ($pinFirstId) {
             $merged = $merged->reject(function ($e) use ($pinFirstId) {
                 return (string) ($e->_id ?? $e->id) === (string) $pinFirstId;
             })->values();
-            $pinned = $entries->first(function ($e) use ($pinFirstId) {
+            $candidate = $others->first(function ($e) use ($pinFirstId) {
                 return (string) ($e->_id ?? $e->id) === (string) $pinFirstId;
             });
-            if ($pinned) {
-                $merged->prepend($pinned);
+            if ($candidate) {
+                $merged->prepend($candidate);
             }
         }
 
-        // Write compact display_order
+        // Null out display_order for pinned entries and write compact orders for unpinned only
+        foreach ($pinned as $e) {
+            if (!is_null($e->display_order)) {
+                JournalEntry::where('_id', $e->_id)->update(['display_order' => null]);
+            }
+        }
+
         $i = 0;
         foreach ($merged as $e) {
             $newOrder = $i++;
