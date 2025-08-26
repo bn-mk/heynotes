@@ -204,6 +204,67 @@ const sortedEntries = computed(() => {
   return [...pinned, ...unpinnedSorted];
 });
 
+const pinnedEntries = computed(() => {
+  const entries = journalStore.selectedJournal?.entries || [];
+  return entries
+    .filter((e: any) => !!e.pinned)
+    .slice()
+    .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+});
+
+const unpinnedEntries = computed(() => {
+  const entries = journalStore.selectedJournal?.entries || [];
+  const unpinned = entries.filter((e: any) => !e.pinned);
+  if (unpinned.some((e: any) => e.display_order !== undefined && e.display_order !== null)) {
+    return unpinned
+      .slice()
+      .sort((a: any, b: any) => {
+        const ao = (a.display_order ?? Number.MAX_SAFE_INTEGER) as number;
+        const bo = (b.display_order ?? Number.MAX_SAFE_INTEGER) as number;
+        return ao - bo || (new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      });
+  }
+  return unpinned
+    .slice()
+    .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+});
+
+const isDragging = computed(() => !!draggedEntry.value);
+
+function handlePinnedZoneDragOver(e: DragEvent) {
+  if (e.preventDefault) e.preventDefault();
+}
+async function handlePinnedZoneDrop(e: DragEvent) {
+  if (e.preventDefault) e.preventDefault();
+  if (!draggedEntry.value) return;
+  if (!draggedEntry.value.pinned) {
+    draggedEntry.value.pinned = true;
+  }
+  const journal = journalStore.journals.find(j => j.id === journalStore.selectedJournalId);
+  if (journal && journal.entries) {
+    const unpinned = journal.entries.filter((e: any) => !e.pinned);
+    unpinned.forEach((e: any, idx: number) => { e.display_order = idx; });
+  }
+  await saveEntryOrder();
+}
+
+function handleUnpinnedZoneDragOver(e: DragEvent) {
+  if (e.preventDefault) e.preventDefault();
+}
+async function handleUnpinnedZoneDrop(e: DragEvent) {
+  if (e.preventDefault) e.preventDefault();
+  if (!draggedEntry.value) return;
+  if (draggedEntry.value.pinned) {
+    draggedEntry.value.pinned = false;
+  }
+  const journal = journalStore.journals.find(j => j.id === journalStore.selectedJournalId);
+  if (journal && journal.entries) {
+    const unpinned = journal.entries.filter((e: any) => !e.pinned);
+    unpinned.forEach((e: any, idx: number) => { e.display_order = idx; });
+  }
+  await saveEntryOrder();
+}
+
 function handleEditTitle() {
   if (journalStore.selectedJournal) {
     editingJournalId.value = journalStore.selectedJournal.id;
@@ -313,8 +374,12 @@ async function togglePin(entry: any) {
 // Drag and Drop handlers
 function handleDragStart(entry: any, event: DragEvent) {
   draggedEntry.value = entry;
-  event.dataTransfer!.effectAllowed = 'move';
-  // Add dragging class to the element
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    // Ensure some data is set so drops are consistently accepted
+    try { event.dataTransfer.setData('text/plain', String(entry.id)); } catch {}
+  }
+  // Add dragging class to the element being dragged (wrapper)
   (event.target as HTMLElement).classList.add('opacity-50');
 }
 
@@ -336,20 +401,27 @@ function handleDragOver(event: DragEvent) {
 function handleDragEnter(entry: any, event: DragEvent) {
   if (draggedEntry.value && entry.id !== draggedEntry.value.id) {
     draggedOverEntry.value = entry;
-    (event.currentTarget as HTMLElement).classList.add('border-4', 'border-blue-400');
+    const card = (event.currentTarget as HTMLElement).closest('.masonry-card');
+    if (card) card.classList.add('border-4', 'border-blue-400');
   }
 }
 
 function handleDragLeave(event: DragEvent) {
-  (event.currentTarget as HTMLElement).classList.remove('border-4', 'border-blue-400');
+  const card = (event.currentTarget as HTMLElement).closest('.masonry-card');
+  if (card) card.classList.remove('border-4', 'border-blue-400');
 }
 
 async function handleDrop(targetEntry: any, event: DragEvent) {
   if (event.stopPropagation) {
     event.stopPropagation(); // stops some browsers from redirecting.
   }
-  
-  (event.currentTarget as HTMLElement).classList.remove('border-4', 'border-blue-400');
+
+  const el = event.currentTarget as HTMLElement;
+  el.classList.remove('border-4', 'border-blue-400');
+  const cardEl = el.closest('.masonry-card');
+  if (cardEl) {
+    cardEl.classList.remove('border-4', 'border-blue-400');
+  }
   
   if (draggedEntry.value && targetEntry.id !== draggedEntry.value.id) {
     const entries = sortedEntries.value;
@@ -558,84 +630,141 @@ onUnmounted(() => {
             </DialogContent>
           </Dialog>
 
-<div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0" class="columns-1 sm:columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-x-6">
-          <Card
-            v-for="(entry, index) in sortedEntries" 
-            :key="entry.id" 
-class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inline-block w-full will-change-transform hover:-translate-y-0.5 hover:shadow-md masonry-card"
-            :style="[{ borderColor: getBorderColor(index, sortedEntries.length) }, cardSwipeStyle(entry)]"
-            draggable="true"
-            @dragstart="handleDragStart(entry, $event)"
-            @dragend="handleDragEnd($event)"
-            @dragover="handleDragOver($event)"
-            @dragenter="handleDragEnter(entry, $event)"
-            @dragleave="handleDragLeave($event)"
-            @drop="handleDrop(entry, $event)"
-            @click="onCardClick(entry, $event)"
-            @touchstart="onTouchStart(entry, $event)"
-            @touchmove="onTouchMove($event)"
-            @touchend="onTouchEnd(entry, $event)"
+<div v-if="journalStore.selectedJournal.entries && journalStore.selectedJournal.entries.length > 0">
+          <!-- Global Pinned Drop Zone (visible while dragging) -->
+          <div
+            v-show="isDragging"
+            class="mb-3 rounded-md border-2 border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-50/40 dark:bg-neutral-800/40 text-center text-xs text-neutral-500 p-2"
+            @dragover="handlePinnedZoneDragOver"
+            @drop="handlePinnedZoneDrop"
           >
-          <div class="p-4 flex flex-col relative">
-              <!-- Pin Icon -->
-              <div v-if="entry.pinned" class="absolute top-2 left-2 z-10">
-                <Pin class="w-4 h-4 text-amber-500" @click.stop="togglePin(entry)" />
-              </div>
-              <div v-else class="absolute top-2 left-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
-                <Pin class="w-4 h-4 text-gray-400 hover:text-amber-500" @click.stop="togglePin(entry)" />
-              </div>
-              <!-- Mood Emoji Display -->
-              <div v-if="entry.mood" class="absolute top-2" :class="entry.pinned ? 'left-8' : 'left-2'" :title="entry.mood">
-                <span class="text-lg">{{ getMoodEmoji(entry.mood) }}</span>
-              </div>
-              
-<div class="absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-1">
-<LinkEntryButton :entry-id="String(entry.id)" />
-                <DeleteEntryButton
-                  :entry-id="String(entry.id)"
-                  @deleted="showNotification('Entry moved to trash')"
-                />
-              </div>
-              <!-- Text Card Content -->
-<div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
-<div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
-              </div>
-              
-<!-- Checkbox Card Content -->
-<div v-else-if="entry.card_type === 'checkbox'" class="pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
-                <div class="space-y-0">
-                  <div 
-                    v-for="(item, idx) in (entry.checkbox_items || [])"
-                    :key="idx"
-                    class="flex items-center gap-0.5 text-sm leading-tight"
-                  >
-                    <CheckSquare v-if="item.checked" class="w-4 h-4 text-green-600 flex-shrink-0" />
-                    <Square v-else class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                    <span :class="{ 'line-through text-gray-500': item.checked }">
-                      {{ item.text }}
-                    </span>
-                  </div>
-                  <div v-if="!entry.checkbox_items || entry.checkbox_items.length === 0" class="text-gray-500 text-sm">
-                    Empty checklist
-                  </div>
-                </div>
-                <!-- Show progress -->
-                <div class="mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
-                  <div class="text-xs text-gray-500">
-                    {{ getChecklistProgress(entry.checkbox_items) }}
-                  </div>
-                </div>
-              </div>
-
-              <!-- Spreadsheet Card Content -->
-<div v-else-if="entry.card_type === 'spreadsheet'" class="pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
-                <Spreadsheet :data="entry.content" />
-              </div>
-              <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
-            </div>
-          </Card>
+            Drop here to pin
           </div>
-          <div v-else class="text-gray-500 text-center">No entries yet.</div>
+
+          <!-- Pinned header + grid -->
+          <template v-if="pinnedEntries.length > 0">
+            <div class="mb-2 mt-1 flex items-center gap-2 text-[11px] uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+              <span class="font-medium">Pinned</span>
+              <div class="flex-1 border-t border-dashed border-neutral-300 dark:border-neutral-700"></div>
+            </div>
+            <div class="columns-1 sm:columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-x-6">
+              <Card
+                v-for="(entry, index) in pinnedEntries"
+                :key="entry.id"
+                class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inline-block w-full will-change-transform hover:-translate-y-0.5 hover:shadow-md masonry-card"
+                :style="[{ borderColor: getBorderColor(index, pinnedEntries.length) }, cardSwipeStyle(entry)]"
+                @click="onCardClick(entry, $event)"
+                @touchstart="onTouchStart(entry, $event)"
+                @touchmove="onTouchMove($event)"
+                @touchend="onTouchEnd(entry, $event)"
+              >
+                <div class="p-4 flex flex-col relative" :class="{ 'children-pe-none noselect': isDragging }" draggable="true" @dragstart="handleDragStart(entry, $event)" @dragover="handleDragOver($event)" @dragenter="handleDragEnter(entry, $event)" @dragleave="handleDragLeave($event)" @drop="handleDrop(entry, $event)">
+                  <!-- Pin Icon -->
+                  <div class="absolute top-2 left-2 z-10" @mousedown.stop @touchstart.stop>
+                    <Pin class="w-4 h-4 text-amber-500" @click.stop="togglePin(entry)" />
+                  </div>
+                  <!-- Mood Emoji Display -->
+                  <div v-if="entry.mood" class="absolute top-2 left-8" :title="entry.mood">
+                    <span class="text-lg">{{ getMoodEmoji(entry.mood) }}</span>
+                  </div>
+
+                  <div class="absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-1" @click.stop @mousedown.stop @touchstart.stop>
+                    <LinkEntryButton :entry-id="String(entry.id)" />
+                    <DeleteEntryButton :entry-id="String(entry.id)" @deleted="showNotification('Entry moved to trash')" />
+                  </div>
+
+                  <!-- Content -->
+                  <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8 pl-8">
+                    <div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
+                  </div>
+                  <div v-else-if="entry.card_type === 'checkbox'" class="pr-8 pl-8">
+                    <div class="space-y-0">
+                      <div v-for="(item, idx) in (entry.checkbox_items || [])" :key="idx" class="flex items-center gap-0.5 text-sm leading-tight">
+                        <CheckSquare v-if="item.checked" class="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <Square v-else class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <span :class="{ 'line-through text-gray-500': item.checked }">{{ item.text }}</span>
+                      </div>
+                      <div v-if="!entry.checkbox_items || entry.checkbox_items.length === 0" class="text-gray-500 text-sm">Empty checklist</div>
+                    </div>
+                    <div class="mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                      <div class="text-xs text-gray-500">{{ getChecklistProgress(entry.checkbox_items) }}</div>
+                    </div>
+                  </div>
+                  <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-8 pl-8">
+                    <Spreadsheet :data="entry.content" />
+                  </div>
+                  <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
+                </div>
+              </Card>
+            </div>
+          </template>
+
+          <!-- Unpinned header + drop zone + grid -->
+          <div class="mt-4 mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            <span class="font-medium">All entries</span>
+            <div class="flex-1 border-t border-dashed border-neutral-300 dark:border-neutral-700"></div>
+          </div>
+          <div
+            v-show="isDragging"
+            class="mb-3 rounded-md border-2 border-dashed border-neutral-300 dark:border-neutral-700 bg-neutral-50/40 dark:bg-neutral-800/40 text-center text-xs text-neutral-500 p-2"
+            @dragover="handleUnpinnedZoneDragOver"
+            @drop="handleUnpinnedZoneDrop"
+          >
+            Drop here to unpin
+          </div>
+
+          <div class="columns-1 sm:columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-x-6">
+            <Card
+              v-for="(entry, index) in unpinnedEntries"
+              :key="entry.id"
+              class="border-2 transition-all cursor-pointer group break-inside-avoid mb-6 inline-block w-full will-change-transform hover:-translate-y-0.5 hover:shadow-md masonry-card"
+              :style="[{ borderColor: getBorderColor(index, unpinnedEntries.length) }, cardSwipeStyle(entry)]"
+              @click="onCardClick(entry, $event)"
+              @touchstart="onTouchStart(entry, $event)"
+              @touchmove="onTouchMove($event)"
+              @touchend="onTouchEnd(entry, $event)"
+            >
+              <div class="p-4 flex flex-col relative" :class="{ 'children-pe-none noselect': isDragging }" draggable="true" @dragstart="handleDragStart(entry, $event)" @dragover="handleDragOver($event)" @dragenter="handleDragEnter(entry, $event)" @dragleave="handleDragLeave($event)" @drop="handleDrop(entry, $event)">
+                <!-- Pin Icon (hover only for unpinned) -->
+                <div class="absolute top-2 left-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto" @mousedown.stop @touchstart.stop>
+                  <Pin class="w-4 h-4 text-gray-400 hover:text-amber-500" @click.stop="togglePin(entry)" />
+                </div>
+                <!-- Mood Emoji Display -->
+                <div v-if="entry.mood" class="absolute top-2 left-2" :title="entry.mood">
+                  <span class="text-lg">{{ getMoodEmoji(entry.mood) }}</span>
+                </div>
+
+                <div class="absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-1" @click.stop @mousedown.stop @touchstart.stop>
+                  <LinkEntryButton :entry-id="String(entry.id)" />
+                  <DeleteEntryButton :entry-id="String(entry.id)" @deleted="showNotification('Entry moved to trash')" />
+                </div>
+
+                <!-- Content -->
+                <div v-if="!entry.card_type || entry.card_type === 'text'" class="text-sm text-white-800 whitespace-normal mb-2 pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
+                  <div class="prose prose-neutral dark:prose-invert max-w-none leading-tight prose-headings:my-0 prose-headings:pb-4 prose-headings:leading-tight prose-p:my-0 prose-li:my-0 prose-ul:my-0 prose-ul:pb-4 prose-ol:my-0" v-html="renderMarkdown(entry.content)"></div>
+                </div>
+                <div v-else-if="entry.card_type === 'checkbox'" class="pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
+                  <div class="space-y-0">
+                    <div v-for="(item, idx) in (entry.checkbox_items || [])" :key="idx" class="flex items-center gap-0.5 text-sm leading-tight">
+                      <CheckSquare v-if="item.checked" class="w-4 h-4 text-green-600 flex-shrink-0" />
+                      <Square v-else class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      <span :class="{ 'line-through text-gray-500': item.checked }">{{ item.text }}</span>
+                    </div>
+                    <div v-if="!entry.checkbox_items || entry.checkbox_items.length === 0" class="text-gray-500 text-sm">Empty checklist</div>
+                  </div>
+                  <div class="mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                    <div class="text-xs text-gray-500">{{ getChecklistProgress(entry.checkbox_items) }}</div>
+                  </div>
+                </div>
+                <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-8" :class="{ 'pl-8': entry.mood || entry.pinned }">
+                  <Spreadsheet :data="entry.content" />
+                </div>
+                <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
+              </div>
+            </Card>
+          </div>
+        </div>
+        <div v-else class="text-gray-500 text-center">No entries yet.</div>
         </div>
       </template>
     </div>
@@ -693,5 +822,16 @@ html.dark .pattern-bg {
 @keyframes fadeSlideIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* While dragging, ensure child elements don't intercept dragover/drop so the card wrapper receives it */
+.children-pe-none * {
+  pointer-events: none !important;
+}
+
+/* Prevent text selection during drag to avoid interference */
+.noselect {
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 </style>
