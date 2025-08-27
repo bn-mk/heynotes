@@ -10,16 +10,14 @@ use App\Http\Requests\Entry\ReorderEntriesRequest;
 use App\Http\Requests\Entry\PinEntryRequest;
 use App\Models\Journal;
 use App\Models\JournalEntry;
-use App\Models\Tag;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Http\Response;
 use Inertia\Inertia;
+use App\Http\Resources\JournalResource;
+use App\Http\Resources\JournalEntryResource;
 use App\Services\TrashedItemService;
 use App\Services\JournalService;
 use App\Services\JournalEntryService;
-use App\Services\TagService;
 
 class JournalController extends Controller
 {
@@ -27,7 +25,6 @@ class JournalController extends Controller
         private TrashedItemService $trashService,
         private JournalService $journalService,
         private JournalEntryService $entryService,
-        private TagService $tagService,
     ) {}
     // List all journals for the current user
     public function index()
@@ -60,39 +57,17 @@ class JournalController extends Controller
         $journal = $this->journalService->createJournal((string)(Auth::user()->_id ?? Auth::id()), $validated);
 
         if ($request->wantsJson()) {
-            return response()->json($journal, 201);
+            return response()->json(new JournalResource($journal), 201);
         }
 
         return redirect()->route('dashboard');
     }
 
-    // List available tags
-    public function tags()
-    {
-        $names = $this->tagService->listNames();
-        return response()->json($names);
-    }
-
-    // Create a new tag
-    public function createTag(Request $request)
-    {
-        $validated = $request->validate([
-            'name' => 'required|string|max:64',
-        ]);
-
-        $name = trim($validated['name']);
-        if ($name === '') {
-            return response()->json(['message' => 'Tag name cannot be empty'], 422);
-        }
-
-        $created = $this->tagService->create($name);
-        return response()->json($created, 201);
-    }
 
     // Get all entries for a specific journal
     public function entries(Journal $journal)
     {
-        return $this->entryService->getJournalEntries($journal);
+        return JournalEntryResource::collection($this->entryService->getJournalEntries($journal));
     }
 
     // Create a new entry in a specific journal
@@ -100,7 +75,7 @@ class JournalController extends Controller
     {
         $validated = $request->validated();
         $entry = $this->entryService->createEntry($journal, $validated);
-        return response()->json($entry, 201);
+        return response()->json(new JournalEntryResource($entry), 201);
     }
 
     // Update a specific journal (title/tags)
@@ -115,7 +90,8 @@ class JournalController extends Controller
             $update['tags'] = array_values(array_unique($validated['tags']));
         }
         $journal->update($update);
-        return $this->journalService->updateJournal($journal, $validated);
+        $updated = $this->journalService->updateJournal($journal, $validated);
+        return new JournalResource($updated);
     }
 
     // Soft delete the journal and its entries
@@ -142,7 +118,7 @@ class JournalController extends Controller
     {
         $validated = $request->validated();
         $updated = $this->entryService->updateEntry($journal, $entry, $validated);
-        return response()->json($updated, 200);
+        return response()->json(new JournalEntryResource($updated), 200);
     }
 
     // Get all trashed journals for the current user
@@ -208,7 +184,7 @@ class JournalController extends Controller
     public function restoreEntry($entryId)
     {
         $entry = $this->trashService->restoreEntry((string)(Auth::user()->_id ?? Auth::id()), (string)$entryId);
-        return response()->json(['message' => 'Entry restored successfully', 'entry' => $entry]);
+        return response()->json(['message' => 'Entry restored successfully', 'entry' => new JournalEntryResource($entry)]);
     }
 
     // Permanently delete a soft-deleted entry

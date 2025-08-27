@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JournalController;
 use App\Http\Controllers\LinkController;
+use App\Http\Controllers\TagController;
 use App\Http\Controllers\TrashController;
 
 Route::get('/user', function (Request $request) {
@@ -12,8 +13,8 @@ Route::get('/user', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function() {
     Route::get('journals', [JournalController::class, 'index']);
-    Route::get('tags', [JournalController::class, 'tags']);
-    Route::post('tags', [JournalController::class, 'createTag']);
+    Route::get('tags', [TagController::class, 'index']);
+    Route::post('tags', [TagController::class, 'store']);
     Route::post('journals', [JournalController::class, 'store']);
     Route::get('journals/{journal}', [JournalController::class, 'show']);
     Route::put('journals/{journal}', [JournalController::class, 'update']);
