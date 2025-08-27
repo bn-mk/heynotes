@@ -188,11 +188,41 @@ export const useJournalStore = defineStore('journal', {
 
         if (response.ok) {
             const { journal } = await response.json();
-            this.trashedJournals = this.trashedJournals.filter(j => j.id !== journalId);
-            this.journals.push(journal);
-        } else {
+            const id = String(journal.id || journal._id || journalId);
+            // Normalize and ensure id is a string
+            const normalized = { ...journal, id } as any;
+
+            // Fetch entries for the restored journal so the dashboard shows them immediately
+            try {
+              const entriesRes = await fetch(`/api/journals/${id}/entries`, {
+                credentials: 'include',
+                headers: { 'X-XSRF-TOKEN': xsrf },
+              });
+              if (entriesRes.ok) {
+                normalized.entries = await entriesRes.json();
+              } else {
+                normalized.entries = [];
+              }
+            } catch {
+              normalized.entries = [];
+            }
+
+            // Remove from trashed list
+            this.trashedJournals = this.trashedJournals.filter(j => (j.id || j._id) !== journalId);
+
+            // Upsert into journals list
+            const idx = this.journals.findIndex(j => String(j.id) === id);
+            if (idx >= 0) {
+              this.journals[idx] = { ...this.journals[idx], ...normalized };
+            } else {
+              this.journals.push(normalized);
+            }
+
+            // Refresh trash lists (entries from this journal should disappear)
+            await this.fetchTrashed();
+          } else {
             console.error('Failed to restore journal');
-        }
+          }
       } catch (error) {
         console.error('Error restoring journal:', error);
       }

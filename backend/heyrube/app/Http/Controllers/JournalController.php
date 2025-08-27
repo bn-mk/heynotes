@@ -2,6 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Journal\StoreJournalRequest;
+use App\Http\Requests\Journal\UpdateJournalRequest;
+use App\Http\Requests\Entry\StoreEntryRequest;
+use App\Http\Requests\Entry\UpdateEntryRequest;
+use App\Http\Requests\Entry\ReorderEntriesRequest;
+use App\Http\Requests\Entry\PinEntryRequest;
 use App\Models\Journal;
 use App\Models\JournalEntry;
 use App\Models\Tag;
@@ -11,9 +17,11 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Response;
 use Inertia\Inertia;
 use MongoDB\BSON\ObjectId;
+use App\Services\TrashedItemService;
 
 class JournalController extends Controller
 {
+    public function __construct(private TrashedItemService $trashService) {}
     // List all journals for the current user
     public function index()
     {
@@ -38,13 +46,9 @@ class JournalController extends Controller
     }
 
     // Store a new journal (does not create entry)
-    public function store(Request $request)
+    public function store(StoreJournalRequest $request)
     {
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'tags' => 'nullable|array',
-            'tags.*' => 'string',
-        ]);
+        $validated = $request->validated();
 
         $journal = Journal::create([
             'user_id' => Auth::id(),
@@ -91,16 +95,9 @@ class JournalController extends Controller
     }
 
     // Create a new entry in a specific journal
-    public function storeEntry(Request $request, Journal $journal)
+    public function storeEntry(StoreEntryRequest $request, Journal $journal)
     {
-        $validated = $request->validate([
-            'content' => 'required_if:card_type,text|nullable|string',
-            'card_type' => 'required|in:text,checkbox,spreadsheet',
-            'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
-            'checkbox_items.*.text' => 'required_with:checkbox_items|string',
-            'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',
-            'mood' => 'nullable|string|in:happy,sad,tired,angry,anxious,grateful,calm,thoughtful,confident,stressed,loved,neutral',
-        ]);
+        $validated = $request->validated();
         
         // New entries should appear at the very top and manual order should be updated.
         $entryData = [
@@ -110,7 +107,7 @@ class JournalController extends Controller
         ];
         
         if ($validated['card_type'] === 'text' || $validated['card_type'] === 'spreadsheet') {
-            $entryData['content'] = $validated['content'];
+            $entryData['content'] = $validated['content'] ?? null;
         } else if ($validated['card_type'] === 'checkbox') {
             $entryData['checkbox_items'] = $validated['checkbox_items'] ?? [];
             // Set content as a summary of checkbox items for display
@@ -134,13 +131,9 @@ class JournalController extends Controller
     }
 
     // Update a specific journal (title/tags)
-    public function update(Request $request, Journal $journal)
+    public function update(UpdateJournalRequest $request, Journal $journal)
     {
-        $validated = $request->validate([
-            'title' => 'sometimes|string|max:255',
-            'tags' => 'sometimes|array',
-            'tags.*' => 'string',
-        ]);
+        $validated = $request->validated();
         $update = [];
         if (array_key_exists('title', $validated)) {
             $update['title'] = $validated['title'];
@@ -179,17 +172,9 @@ class JournalController extends Controller
     }
 
     // Update an individual journal entry
-    public function updateEntry(Request $request, Journal $journal, JournalEntry $entry)
+    public function updateEntry(UpdateEntryRequest $request, Journal $journal, JournalEntry $entry)
     {
-        $validated = $request->validate([
-            'content' => 'required_if:card_type,text|nullable|string',
-            'journal_id' => 'sometimes|exists:journals,id',
-            'card_type' => 'sometimes|in:text,checkbox,spreadsheet',
-            'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
-            'checkbox_items.*.text' => 'required_with:checkbox_items|string',
-            'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',
-            'mood' => 'nullable|string|in:happy,sad,tired,angry,anxious,grateful,calm,thoughtful,confident,stressed,loved,neutral',
-        ]);
+        $validated = $request->validated();
         
         $updateData = [
             'journal_id' => $validated['journal_id'] ?? $entry->journal_id,
@@ -232,139 +217,46 @@ class JournalController extends Controller
     // Get all trashed journals for the current user
     public function trash()
     {
-        $trashedJournals = Journal::onlyTrashed()
-            ->where('user_id', Auth::id())
-            ->with(['entries' => function ($query) {
-                $query->withTrashed();
-            }])
-            ->get();
-        
-        return response()->json($trashedJournals);
+        $items = $this->trashService->getTrashedJournalsForUser((string)(Auth::user()->_id ?? Auth::id()));
+        return response()->json($items);
     }
     
     // Get all trashed entries (not in trashed journals)
     public function trashedEntries()
     {
-        // Prepare current user id as string
-        $currentUserId = (string) (Auth::user()->_id ?? Auth::id());
-
-        // Active and trashed journal ids for current user
-        $activeJournalIds = Journal::where('user_id', $currentUserId)->pluck('_id');
-        $trashedJournalIds = Journal::onlyTrashed()->where('user_id', $currentUserId)->pluck('_id');
-
-        // Normalize ids to support ObjectId/string comparisons
-        $normalize = function ($ids) {
-            return collect($ids)
-                ->flatMap(function ($id) {
-                    $asString = (string) $id;
-                    try {
-                        $asObject = new ObjectId($asString);
-                        return [$id, $asString, $asObject];
-                    } catch (\Throwable $e) {
-                        return [$id, $asString];
-                    }
-                })
-                ->unique(strict: false)
-                ->values()
-                ->all();
-        };
-
-        $activeIdsNormalized = $normalize($activeJournalIds);
-        $trashedIdsNormalized = $normalize($trashedJournalIds);
-
-        $filteredQuery = JournalEntry::withTrashed()
-            ->whereNotNull('deleted_at')
-            ->where(function ($q) use ($activeIdsNormalized, $currentUserId) {
-                $q->whereIn('journal_id', $activeIdsNormalized)
-                  ->orWhere('user_id', $currentUserId);
-            })
-            ->whereNotIn('journal_id', $trashedIdsNormalized);
-
-        $trashedEntries = $filteredQuery
-            ->with('journal:_id,title')
-            ->orderBy('deleted_at', 'desc')
-            ->get();
-        
-        return response()->json($trashedEntries);
+        $items = $this->trashService->getTrashedEntriesForUser((string)(Auth::user()->_id ?? Auth::id()));
+        return response()->json($items);
     }
 
     // Restore a soft-deleted journal and its entries
     public function restore($id)
     {
-        $journal = Journal::onlyTrashed()->where('_id', $id)->where('user_id', Auth::id())->firstOrFail();
-        
-        // Restore the journal
-        $journal->restore();
-        
-        // Restore all its entries
-        JournalEntry::onlyTrashed()->where('journal_id', $id)->restore();
-        
+        $journal = $this->trashService->restoreJournal((string)(Auth::user()->_id ?? Auth::id()), $id);
         return response()->json(['message' => 'Journal restored successfully', 'journal' => $journal]);
     }
 
     // Permanently delete a soft-deleted journal and its entries
     public function forceDestroy($id)
     {
-        $journal = Journal::onlyTrashed()->where('_id', $id)->where('user_id', Auth::id())->firstOrFail();
-        
-        // Permanently delete all entries
-        JournalEntry::withTrashed()->where('journal_id', $id)->forceDelete();
-        
-        // Permanently delete the journal
-        $journal->forceDelete();
-        
+        $this->trashService->forceDeleteJournal((string)(Auth::user()->_id ?? Auth::id()), $id);
         return response()->json(['message' => 'Journal permanently deleted']);
     }
 
     // Empty all items from trash
     public function emptyTrash()
     {
-        // Get all trashed journals for the current user
-        $trashedJournals = Journal::onlyTrashed()->where('user_id', Auth::id())->get();
-        
-        foreach ($trashedJournals as $journal) {
-            // Permanently delete all entries
-            JournalEntry::withTrashed()->where('journal_id', $journal->_id)->forceDelete();
-            // Permanently delete the journal
-            $journal->forceDelete();
-        }
-        
-        // Also delete individual trashed entries (not in trashed journals)
-        // Derive active journal ids using direct query on journals collection
-        $activeJournalIds = Journal::where('user_id', Auth::id())->pluck('_id');
-        $idsNormalized = collect($activeJournalIds)
-            ->flatMap(function ($id) {
-                $asString = (string) $id;
-                try {
-                    $asObject = new ObjectId($asString);
-                    return [$id, $asString, $asObject];
-                } catch (\Throwable $e) {
-                    return [$id, $asString];
-                }
-            })
-            ->unique(strict: false)
-            ->values()
-            ->all();
-        JournalEntry::onlyTrashed()
-            ->whereIn('journal_id', $idsNormalized)
-            ->forceDelete();
-        
+        $this->trashService->emptyTrashForUser((string)(Auth::user()->_id ?? Auth::id()));
         return response()->json(['message' => 'Trash emptied successfully']);
     }
 
     // Reorder journal entries (supports pinning)
-    public function reorderEntries(Request $request, Journal $journal)
+    public function reorderEntries(ReorderEntriesRequest $request, Journal $journal)
     {
         if ($journal->user_id !== Auth::id()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $validated = $request->validate([
-            'entries' => 'required|array',
-            'entries.*.id' => 'required|string',
-            'entries.*.display_order' => 'nullable|integer|min:0',
-            'entries.*.pinned' => 'nullable|boolean',
-        ]);
+        $validated = $request->validated();
 
         foreach ($validated['entries'] as $entryData) {
             $query = JournalEntry::where('_id', $entryData['id'])
@@ -394,14 +286,12 @@ class JournalController extends Controller
     }
 
     // Pin or unpin an entry
-    public function pinEntry(Request $request, Journal $journal, JournalEntry $entry)
+    public function pinEntry(PinEntryRequest $request, Journal $journal, JournalEntry $entry)
     {
         if ($journal->user_id !== Auth::id()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-        $validated = $request->validate([
-            'pinned' => 'required|boolean',
-        ]);
+        $validated = $request->validated();
         $entry->update([
             'pinned' => $validated['pinned'],
             'display_order' => $validated['pinned'] ? null : $entry->display_order,
@@ -414,49 +304,8 @@ class JournalController extends Controller
     // Restore a soft-deleted entry
     public function restoreEntry($entryId)
     {
-        // Current user id as string
-        $currentUserId = (string) (Auth::user()->_id ?? Auth::id());
-
-        // Active and trashed journal ids for current user
-        $activeJournalIds = Journal::where('user_id', $currentUserId)->pluck('_id');
-        $trashedJournalIds = Journal::onlyTrashed()->where('user_id', $currentUserId)->pluck('_id');
-
-        $normalize = function ($ids) {
-            return collect($ids)
-                ->flatMap(function ($id) {
-                    $asString = (string) $id;
-                    try {
-                        $asObject = new ObjectId($asString);
-                        return [$id, $asString, $asObject];
-                    } catch (\Throwable $e) {
-                        return [$id, $asString];
-                    }
-                })
-                ->unique(strict: false)
-                ->values()
-                ->all();
-        };
-
-        $activeIdsNormalized = $normalize($activeJournalIds);
-        $trashedIdsNormalized = $normalize($trashedJournalIds);
-
-        // Accept both raw string and ObjectId for entry _id
-        $entryIdCandidates = [(string)$entryId];
-        try { $entryIdCandidates[] = new ObjectId((string)$entryId); } catch (\Throwable $e) {}
-
-        $entry = JournalEntry::withTrashed()
-            ->whereNotNull('deleted_at')
-            ->whereIn('_id', $entryIdCandidates)
-            ->where(function ($q) use ($activeIdsNormalized, $currentUserId) {
-                $q->whereIn('journal_id', $activeIdsNormalized)
-                  ->orWhere('user_id', $currentUserId);
-            })
-            ->whereNotIn('journal_id', $trashedIdsNormalized)
-            ->firstOrFail();
-        
-        $entry->restore();
-        
-        return response()->json(['message' => 'Entry restored successfully', 'entry' => $entry->load('journal')]);
+        $entry = $this->trashService->restoreEntry((string)(Auth::user()->_id ?? Auth::id()), (string)$entryId);
+        return response()->json(['message' => 'Entry restored successfully', 'entry' => $entry]);
     }
     
     private function renumberJournalEntries(Journal $journal, ?string $pinFirstId = null): void
@@ -527,48 +376,7 @@ class JournalController extends Controller
     // Permanently delete a soft-deleted entry
     public function forceDestroyEntry($entryId)
     {
-        // Current user id as string
-        $currentUserId = (string) (Auth::user()->_id ?? Auth::id());
-
-        // Active and trashed journal ids for current user
-        $activeJournalIds = Journal::where('user_id', $currentUserId)->pluck('_id');
-        $trashedJournalIds = Journal::onlyTrashed()->where('user_id', $currentUserId)->pluck('_id');
-
-        $normalize = function ($ids) {
-            return collect($ids)
-                ->flatMap(function ($id) {
-                    $asString = (string) $id;
-                    try {
-                        $asObject = new ObjectId($asString);
-                        return [$id, $asString, $asObject];
-                    } catch (\Throwable $e) {
-                        return [$id, $asString];
-                    }
-                })
-                ->unique(strict: false)
-                ->values()
-                ->all();
-        };
-
-        $activeIdsNormalized = $normalize($activeJournalIds);
-        $trashedIdsNormalized = $normalize($trashedJournalIds);
-
-        // Accept both raw string and ObjectId for entry _id
-        $entryIdCandidates = [(string)$entryId];
-        try { $entryIdCandidates[] = new ObjectId((string)$entryId); } catch (\Throwable $e) {}
-
-        $entry = JournalEntry::withTrashed()
-            ->whereNotNull('deleted_at')
-            ->whereIn('_id', $entryIdCandidates)
-            ->where(function ($q) use ($activeIdsNormalized, $currentUserId) {
-                $q->whereIn('journal_id', $activeIdsNormalized)
-                  ->orWhere('user_id', $currentUserId);
-            })
-            ->whereNotIn('journal_id', $trashedIdsNormalized)
-            ->firstOrFail();
-        
-        $entry->forceDelete();
-        
+        $this->trashService->forceDeleteEntry((string)(Auth::user()->_id ?? Auth::id()), (string)$entryId);
         return response()->json(['message' => 'Entry permanently deleted']);
     }
 }
