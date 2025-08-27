@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JournalController;
 use App\Http\Controllers\LinkController;
+use App\Http\Controllers\TrashController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -24,18 +25,16 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::put('journals/{journal}/entries/{entry}', [JournalController::class, 'updateEntry']);
     Route::post('journals/{journal}/entries/{entry}/pin', [JournalController::class, 'pinEntry']);
     
-    // Trash routes for journals
-    Route::get('trash/journals', [JournalController::class, 'trash']);
-    Route::post('trash/journals/{id}/restore', [JournalController::class, 'restore']);
-    Route::delete('trash/journals/{id}', [JournalController::class, 'forceDestroy']);
-    
-    // Trash routes for entries
-    Route::get('trash/entries', [JournalController::class, 'trashedEntries']);
-    Route::post('trash/entries/{id}/restore', [JournalController::class, 'restoreEntry']);
-    Route::delete('trash/entries/{id}', [JournalController::class, 'forceDestroyEntry']);
-    
-    // Empty all trash
-    Route::delete('trash/empty', [JournalController::class, 'emptyTrash']);
+    // Trash routes (moved to TrashController)
+    Route::get('trash/journals', [TrashController::class, 'journals']);
+    Route::post('trash/journals/{id}/restore', [TrashController::class, 'restoreJournal']);
+    Route::delete('trash/journals/{id}', [TrashController::class, 'forceDestroyJournal']);
+
+    Route::get('trash/entries', [TrashController::class, 'entries']);
+    Route::post('trash/entries/{id}/restore', [TrashController::class, 'restoreEntry']);
+    Route::delete('trash/entries/{id}', [TrashController::class, 'forceDestroyEntry']);
+
+    Route::delete('trash/empty', [TrashController::class, 'empty']);
 
     // Links and graph
     Route::post('links', [LinkController::class, 'store']);
