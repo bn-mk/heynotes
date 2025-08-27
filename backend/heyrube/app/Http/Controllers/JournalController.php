@@ -18,10 +18,16 @@ use Illuminate\Http\Response;
 use Inertia\Inertia;
 use MongoDB\BSON\ObjectId;
 use App\Services\TrashedItemService;
+use App\Services\JournalService;
+use App\Services\JournalEntryService;
 
 class JournalController extends Controller
 {
-    public function __construct(private TrashedItemService $trashService) {}
+    public function __construct(
+        private TrashedItemService $trashService,
+        private JournalService $journalService,
+        private JournalEntryService $entryService,
+    ) {}
     // List all journals for the current user
     public function index()
     {
@@ -50,11 +56,7 @@ class JournalController extends Controller
     {
         $validated = $request->validated();
 
-        $journal = Journal::create([
-            'user_id' => Auth::id(),
-            'title' => $validated['title'],
-            'tags' => array_values(array_unique($validated['tags'] ?? [])),
-        ]);
+        $journal = $this->journalService->createJournal((string)(Auth::user()->_id ?? Auth::id()), $validated);
 
         if ($request->wantsJson()) {
             return response()->json($journal, 201);
@@ -91,7 +93,7 @@ class JournalController extends Controller
     // Get all entries for a specific journal
     public function entries(Journal $journal)
     {
-        return $journal->entries()->orderBy('created_at', 'desc')->get();
+        return $this->entryService->getJournalEntries($journal);
     }
 
     // Create a new entry in a specific journal
@@ -114,12 +116,7 @@ class JournalController extends Controller
             $entryData['content'] = $this->generateCheckboxSummary($validated['checkbox_items'] ?? []);
         }
         
-        $entry = $journal->entries()->create($entryData);
-        // Renumber to put the new entry at the top and compact orders
-        $this->renumberJournalEntries($journal, (string) ($entry->_id ?? $entry->id));
-        
-        // Return the created entry with its updated display_order
-        $entry->refresh();
+        $entry = $this->entryService->createEntry($journal, $validated);
         return response()->json($entry, 201);
     }
     
@@ -142,7 +139,7 @@ class JournalController extends Controller
             $update['tags'] = array_values(array_unique($validated['tags']));
         }
         $journal->update($update);
-        return $journal;
+        return $this->journalService->updateJournal($journal, $validated);
     }
 
     // Soft delete the journal and its entries
@@ -153,21 +150,14 @@ class JournalController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
         
-        // Soft delete all entries belonging to this journal
-        $journal->entries()->delete();
-        
-        // Soft delete the journal itself
-        $journal->delete();
-        
+        $this->journalService->deleteJournal((string)(Auth::user()->_id ?? Auth::id()), $journal);
         return response()->json(['message' => 'Journal moved to trash'], 200);
     }
 
     // Delete an individual journal entry
     public function destroyEntry(Journal $journal, JournalEntry $entry)
     {
-        $entry->delete();
-        // Renumber remaining entries to keep a compact manual order
-        $this->renumberJournalEntries($journal);
+        $this->entryService->deleteEntry($journal, $entry);
         return response()->json(null, 204);
     }
 
@@ -210,8 +200,8 @@ class JournalController extends Controller
             $updateData['content'] = $this->generateCheckboxSummary($validated['checkbox_items'] ?? []);
         }
         
-        $entry->update($updateData);
-        return response()->json($entry, 200);
+        $updated = $this->entryService->updateEntry($journal, $entry, $validated);
+        return response()->json($updated, 200);
     }
 
     // Get all trashed journals for the current user
@@ -258,30 +248,7 @@ class JournalController extends Controller
 
         $validated = $request->validated();
 
-        foreach ($validated['entries'] as $entryData) {
-            $query = JournalEntry::where('_id', $entryData['id'])
-                ->where('journal_id', $journal->_id);
-
-            $update = [];
-            if (array_key_exists('pinned', $entryData)) {
-                $update['pinned'] = (bool) $entryData['pinned'];
-            }
-            if (array_key_exists('display_order', $entryData)) {
-                // If pinned, ignore display_order and set null
-                if (isset($entryData['pinned']) && $entryData['pinned']) {
-                    $update['display_order'] = null;
-                } else {
-                    $update['display_order'] = $entryData['display_order'];
-                }
-            }
-            if (!empty($update)) {
-                $query->update($update);
-            }
-        }
-
-        // Compact unpinned display_order
-        $this->renumberJournalEntries($journal);
-
+        $this->entryService->reorderEntries($journal, $validated['entries']);
         return response()->json(['message' => 'Entries reordered successfully']);
     }
 
@@ -292,12 +259,7 @@ class JournalController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
         $validated = $request->validated();
-        $entry->update([
-            'pinned' => $validated['pinned'],
-            'display_order' => $validated['pinned'] ? null : $entry->display_order,
-        ]);
-        // Renumber unpinned after a change
-        $this->renumberJournalEntries($journal, $validated['pinned'] ? (string) ($entry->_id ?? $entry->id) : null);
+        $this->entryService->pinEntry($journal, $entry, (bool)$validated['pinned']);
         return response()->json(['message' => 'Entry pin status updated']);
     }
     
@@ -306,71 +268,6 @@ class JournalController extends Controller
     {
         $entry = $this->trashService->restoreEntry((string)(Auth::user()->_id ?? Auth::id()), (string)$entryId);
         return response()->json(['message' => 'Entry restored successfully', 'entry' => $entry]);
-    }
-    
-    private function renumberJournalEntries(Journal $journal, ?string $pinFirstId = null): void
-    {
-        // Fetch active entries
-        $all = JournalEntry::where('journal_id', $journal->_id)
-            ->whereNull('deleted_at')
-            ->get();
-
-        if ($all->isEmpty()) {
-            return;
-        }
-
-        $pinned = $all->filter(function ($e) {
-            return (bool) ($e->pinned ?? false);
-        })->values();
-
-        $others = $all->reject(function ($e) {
-            return (bool) ($e->pinned ?? false);
-        })->values();
-
-        // Split unpinned into ordered and unordered groups
-        $ordered = $others->filter(function ($e) {
-            return !is_null($e->display_order);
-        })->sortBy('display_order')->values();
-
-        $unordered = $others->filter(function ($e) {
-            return is_null($e->display_order);
-        })->sortByDesc(function ($e) {
-            $c = $e->created_at ?? null;
-            if ($c instanceof \Carbon\Carbon) return $c->getTimestamp();
-            if (is_numeric($c)) return (int)$c;
-            if (is_string($c)) return strtotime($c) ?: 0;
-            return 0;
-        })->values();
-
-        $merged = $ordered->concat($unordered)->values();
-
-        // If specified, move the specified entry to the top of UNPINNED segment
-        if ($pinFirstId) {
-            $merged = $merged->reject(function ($e) use ($pinFirstId) {
-                return (string) ($e->_id ?? $e->id) === (string) $pinFirstId;
-            })->values();
-            $candidate = $others->first(function ($e) use ($pinFirstId) {
-                return (string) ($e->_id ?? $e->id) === (string) $pinFirstId;
-            });
-            if ($candidate) {
-                $merged->prepend($candidate);
-            }
-        }
-
-        // Null out display_order for pinned entries and write compact orders for unpinned only
-        foreach ($pinned as $e) {
-            if (!is_null($e->display_order)) {
-                JournalEntry::where('_id', $e->_id)->update(['display_order' => null]);
-            }
-        }
-
-        $i = 0;
-        foreach ($merged as $e) {
-            $newOrder = $i++;
-            if ($e->display_order !== $newOrder) {
-                JournalEntry::where('_id', $e->_id)->update(['display_order' => $newOrder]);
-            }
-        }
     }
 
     // Permanently delete a soft-deleted entry

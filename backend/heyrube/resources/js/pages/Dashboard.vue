@@ -171,7 +171,10 @@ async function undoDelete() {
   setTimeout(() => { showNotificationFlag.value = false; }, 2000);
 }
 
-function onCardClick(entry: any, _e: MouseEvent) {
+function onCardClick(entry: any, e: MouseEvent) {
+  // If the click originated from the action buttons area, ignore
+  const target = e.target as HTMLElement | null;
+  if (target && target.closest('.card-actions')) return;
   if (suppressClick.value) {
     // Swiped; don’t open editor
     return;
@@ -668,7 +671,7 @@ onUnmounted(() => {
                     <span class="text-lg">{{ getMoodEmoji(entry.mood) }}</span>
                   </div>
 
-                  <div class="absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-1" @click.stop @mousedown.stop @touchstart.stop>
+<div class="card-actions absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-1" @click.stop @mousedown.stop @touchstart.stop>
                     <LinkEntryButton :entry-id="String(entry.id)" />
                     <DeleteEntryButton :entry-id="String(entry.id)" @deleted="showNotification('Entry moved to trash')" />
                   </div>
@@ -734,7 +737,7 @@ onUnmounted(() => {
                   <span class="text-lg">{{ getMoodEmoji(entry.mood) }}</span>
                 </div>
 
-                <div class="absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-1" @click.stop @mousedown.stop @touchstart.stop>
+<div class="card-actions absolute top-2 right-2 z-10 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto flex items-center gap-1" @click.stop @mousedown.stop @touchstart.stop>
                   <LinkEntryButton :entry-id="String(entry.id)" />
                   <DeleteEntryButton :entry-id="String(entry.id)" @deleted="showNotification('Entry moved to trash')" />
                 </div>
