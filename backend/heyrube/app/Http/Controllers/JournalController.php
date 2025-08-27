@@ -16,10 +16,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Response;
 use Inertia\Inertia;
-use MongoDB\BSON\ObjectId;
 use App\Services\TrashedItemService;
 use App\Services\JournalService;
 use App\Services\JournalEntryService;
+use App\Services\TagService;
 
 class JournalController extends Controller
 {
@@ -27,6 +27,7 @@ class JournalController extends Controller
         private TrashedItemService $trashService,
         private JournalService $journalService,
         private JournalEntryService $entryService,
+        private TagService $tagService,
     ) {}
     // List all journals for the current user
     public function index()
@@ -68,7 +69,7 @@ class JournalController extends Controller
     // List available tags
     public function tags()
     {
-        $names = Tag::orderBy('name')->pluck('name');
+        $names = $this->tagService->listNames();
         return response()->json($names);
     }
 
@@ -84,10 +85,8 @@ class JournalController extends Controller
             return response()->json(['message' => 'Tag name cannot be empty'], 422);
         }
 
-        // Create if not exists (case-sensitive uniqueness)
-        $tag = Tag::firstOrCreate(['name' => $name]);
-
-        return response()->json($tag->name, 201);
+        $created = $this->tagService->create($name);
+        return response()->json($created, 201);
     }
 
     // Get all entries for a specific journal
@@ -100,31 +99,8 @@ class JournalController extends Controller
     public function storeEntry(StoreEntryRequest $request, Journal $journal)
     {
         $validated = $request->validated();
-        
-        // New entries should appear at the very top and manual order should be updated.
-        $entryData = [
-            'card_type' => $validated['card_type'] ?? 'text',
-            'mood' => $validated['mood'] ?? null,
-            'user_id' => $journal->user_id,
-        ];
-        
-        if ($validated['card_type'] === 'text' || $validated['card_type'] === 'spreadsheet') {
-            $entryData['content'] = $validated['content'] ?? null;
-        } else if ($validated['card_type'] === 'checkbox') {
-            $entryData['checkbox_items'] = $validated['checkbox_items'] ?? [];
-            // Set content as a summary of checkbox items for display
-            $entryData['content'] = $this->generateCheckboxSummary($validated['checkbox_items'] ?? []);
-        }
-        
         $entry = $this->entryService->createEntry($journal, $validated);
         return response()->json($entry, 201);
-    }
-    
-    private function generateCheckboxSummary($items)
-    {
-        if (empty($items)) return 'Checklist';
-        $checked = array_filter($items, fn($item) => $item['checked'] ?? false);
-        return count($checked) . '/' . count($items) . ' completed';
     }
 
     // Update a specific journal (title/tags)
@@ -165,41 +141,6 @@ class JournalController extends Controller
     public function updateEntry(UpdateEntryRequest $request, Journal $journal, JournalEntry $entry)
     {
         $validated = $request->validated();
-        
-        $updateData = [
-            'journal_id' => $validated['journal_id'] ?? $entry->journal_id,
-            'user_id' => $entry->user_id,
-        ];
-        
-        // If journal_id changed, sync user_id from the target journal
-        if (isset($validated['journal_id']) && $validated['journal_id'] !== $entry->journal_id) {
-            $targetUserId = Journal::withTrashed()->where('_id', $validated['journal_id'])->value('user_id');
-            if ($targetUserId) {
-                $updateData['user_id'] = $targetUserId;
-            }
-        }
-
-        // Handle card type update
-        if (isset($validated['card_type'])) {
-            $updateData['card_type'] = $validated['card_type'];
-        }
-        
-        // Handle mood update
-        if (array_key_exists('mood', $validated)) {
-            $updateData['mood'] = $validated['mood'];
-        }
-        
-        // Update based on card type
-        $cardType = $validated['card_type'] ?? $entry->card_type ?? 'text';
-        
-        if ($cardType === 'text' || $cardType === 'spreadsheet') {
-            $updateData['content'] = $validated['content'];
-            $updateData['checkbox_items'] = null;
-        } else if ($cardType === 'checkbox') {
-            $updateData['checkbox_items'] = $validated['checkbox_items'] ?? [];
-            $updateData['content'] = $this->generateCheckboxSummary($validated['checkbox_items'] ?? []);
-        }
-        
         $updated = $this->entryService->updateEntry($journal, $entry, $validated);
         return response()->json($updated, 200);
     }
