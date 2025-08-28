@@ -3,8 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use App\Models\Journal;
+use App\Models\Tag;
 
 class TagController extends Controller
 {
@@ -13,18 +12,7 @@ class TagController extends Controller
      */
     public function index()
     {
-        $userId = Auth::user()->_id ?? Auth::id();
-        
-        $tags = Journal::where('user_id', $userId)
-            ->whereNotNull('tags')
-            ->get()
-            ->pluck('tags')
-            ->flatten()
-            ->unique()
-            ->values()
-            ->sort()
-            ->values();
-
+       $tags = Tag::all()->pluck('name')->unique()->sort()->values();
         return response()->json($tags);
     }
 
