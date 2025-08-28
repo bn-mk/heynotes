@@ -54,13 +54,14 @@ export const useJournalStore = defineStore('journal', {
             if (response.ok) {
                 const updatedJournal = await response.json();
                 const index = this.journals.findIndex(j => j.id === journalId);
-                if (index !== -1) {
-                    this.journals[index] = { ...this.journals[index], ...updatedJournal };
-                    // Also update selected if needed
-                    if (this.selectedJournalId === journalId) {
-                        this.journals[index] = { ...this.journals[index] };
-                    }
-                }
+if (index !== -1) {
+    const responseData = updatedJournal.data ? updatedJournal.data : updatedJournal;
+this.journals.splice(index, 1, { ...this.journals[index], ...responseData });
+    // Also update selected if needed
+    if (this.selectedJournalId === journalId) {
+        this.journals[index] = { ...this.journals[index] };
+    }
+}
             } else {
                 console.error('Failed to update journal');
             }

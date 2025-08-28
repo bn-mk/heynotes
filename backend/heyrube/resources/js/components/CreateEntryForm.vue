@@ -574,7 +574,7 @@ function toggleCheckbox(index: number) {
       />
       <div class="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 border rounded">
         <label
-          v-for="name in (journalStore.allTags || []).filter(t => t.toLowerCase().includes(tagFilter.toLowerCase()))"
+          v-for="name in (journalStore.allTags || []).filter(t => !tagFilter || t.toLowerCase().includes(tagFilter.toLowerCase()))"
           :key="name"
           class="inline-flex items-center gap-2 text-xs bg-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-1"
         >
