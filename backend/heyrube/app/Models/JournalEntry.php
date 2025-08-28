@@ -16,6 +16,7 @@ class JournalEntry extends Model
     protected $fillable = [
         'journal_id',
         'user_id',
+        'title',
         'content',
         'mood',
         'pinned',

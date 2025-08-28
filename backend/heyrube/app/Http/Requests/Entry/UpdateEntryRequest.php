@@ -14,6 +14,7 @@ class UpdateEntryRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'title' => 'nullable|string|max:255',
             'content' => 'required_if:card_type,text|nullable|string',
             'journal_id' => 'sometimes|string',
             'card_type' => 'sometimes|in:text,checkbox,spreadsheet',

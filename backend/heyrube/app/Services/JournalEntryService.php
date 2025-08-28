@@ -17,6 +17,7 @@ class JournalEntryService
     {
         $entryData = [
             'card_type' => $data['card_type'] ?? 'text',
+            'title' => $data['title'] ?? null,
             'mood' => $data['mood'] ?? null,
             'user_id' => $journal->user_id,
         ];
@@ -48,6 +49,9 @@ class JournalEntryService
         }
         if (array_key_exists('mood', $data)) {
             $updateData['mood'] = $data['mood'];
+        }
+        if (array_key_exists('title', $data)) {
+            $updateData['title'] = $data['title'];
         }
         $cardType = $data['card_type'] ?? $entry->card_type ?? 'text';
         if ($cardType === 'text' || $cardType === 'spreadsheet') {

@@ -105,12 +105,26 @@ class LinkService
                 try { $arr[] = new ObjectId((string)$id); } catch (\Throwable $e) {}
                 return $arr;
             })->all();
-            $entries = JournalEntry::whereIn('_id', $candidates)->get(['_id','content','journal_id','card_type','created_at'])
+            $entries = JournalEntry::whereIn('_id', $candidates)->get(['_id','title','content','journal_id','card_type','created_at'])
                 ->map(function ($e) {
+                    if ($e->title && trim($e->title) !== '') {
+                        $label = $e->title;
+                    } else if ($e->card_type === 'checkbox') {
+                        $label = 'Checklist';
+                    } else {
+                        // Extract first three words from content
+                        $content = strip_tags($e->content ?? '');
+                        $words = preg_split('/\s+/', trim($content), 4);
+                        if (count($words) >= 3 && !empty(trim($words[0]))) {
+                            $label = implode(' ', array_slice($words, 0, 3)) . '...';
+                        } else {
+                            $label = 'Text Entry';
+                        }
+                    }
                     return [
                         'id' => (string)$e->_id,
                         'type' => 'entry',
-                        'label' => $e->card_type === 'checkbox' ? 'Checklist' : (mb_substr($e->content ?? '', 0, 24) ?: 'Text Entry'),
+                        'label' => $label,
                         'journal_id' => (string)$e->journal_id,
                     ];
                 })->values()->all();
@@ -155,15 +169,34 @@ class LinkService
             ->values()->all();
 
         $entries = JournalEntry::where('user_id', $userId)
-            ->where('content', 'like', "%$q%")
+            ->where(function($q2) use ($q) {
+                $q2->where('content', 'like', "%$q%")
+                   ->orWhere('title', 'like', "%$q%");
+            })
             ->take($limit)
-            ->get(['_id','content','journal_id','card_type'])
-            ->map(fn($e) => [
-                'id' => (string)$e->_id,
-                'type' => 'entry',
-                'label' => $e->card_type === 'checkbox' ? 'Checklist' : (mb_substr($e->content ?? '', 0, 60) ?: 'Text Entry'),
-                'journal_id' => (string)$e->journal_id,
-            ])
+            ->get(['_id','title','content','journal_id','card_type'])
+            ->map(function ($e) {
+                if ($e->title && trim($e->title) !== '') {
+                    $label = $e->title;
+                } else if ($e->card_type === 'checkbox') {
+                    $label = 'Checklist';
+                } else {
+                    // Extract first three words from content
+                    $content = strip_tags($e->content ?? '');
+                    $words = preg_split('/\s+/', trim($content), 4);
+                    if (count($words) >= 3 && !empty(trim($words[0]))) {
+                        $label = implode(' ', array_slice($words, 0, 3)) . '...';
+                    } else {
+                        $label = 'Text Entry';
+                    }
+                }
+                return [
+                    'id' => (string)$e->_id,
+                    'type' => 'entry',
+                    'label' => $label,
+                    'journal_id' => (string)$e->journal_id,
+                ];
+            })
             ->values()->all();
 
         return ['journals' => $journals, 'entries' => $entries];

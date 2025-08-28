@@ -14,6 +14,7 @@ class StoreEntryRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'title' => 'nullable|string|max:255',
             'content' => 'required_if:card_type,text|nullable|string',
             'card_type' => 'required|in:text,checkbox,spreadsheet',
             'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',

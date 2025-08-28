@@ -20,6 +20,7 @@ const journals = computed(() => journalStore.journals);
 const creatingNewJournal = ref(props.createNewJournal);
 const selectedJournalId = ref(props.createNewJournal ? 'new' : journalStore.selectedJournalId);
 const entryContent = ref('');
+const entryTitle = ref('');
 const newJournalTitle = ref('');
 const errors = ref<{ content?: string, title?: string }>({});
 const cardType = ref<'text' | 'checkbox' | 'spreadsheet'>('text');
@@ -31,6 +32,7 @@ const pinAfterSave = ref(false);
 // Tags state
 const selectedTags = ref<string[]>([]);
 const tagFilter = ref('');
+const isSubmitting = ref(false);
 
 const spreadsheetContainer = ref<HTMLDivElement | null>(null);
 const isPinned = ref<boolean>(!!props.entryToEdit?.pinned);
@@ -111,6 +113,7 @@ function defaultPrefill() {
   if (props.entryToEdit) {
     selectedJournalId.value = props.entryToEdit.journal_id || journalStore.selectedJournalId || '';
     cardType.value = props.entryToEdit.card_type || 'text';
+    entryTitle.value = props.entryToEdit.title || '';
     selectedMood.value = props.entryToEdit.mood || '';
     isPinned.value = !!props.entryToEdit.pinned;
     if (props.entryToEdit.card_type === 'checkbox' && props.entryToEdit.checkbox_items) {
@@ -259,12 +262,16 @@ function cancel() {
   }
 }
 async function submit() {
+  if (isSubmitting.value) return;
+  
+  isSubmitting.value = true;
   errors.value = {};
   let journalId = selectedJournalId.value;
 
   if (!isEditMode() && creatingNewJournal.value) {
     if (!newJournalTitle.value.trim()) {
       errors.value.title = 'Journal title is required.';
+      isSubmitting.value = false;
       return;
     }
     try {
@@ -305,10 +312,13 @@ async function submit() {
       if (!hasContent()) {
         journalStore.selectJournal(journalId);
         journalStore.stopCreatingEntry();
+        isSubmitting.value = false;
         return;
       }
     } catch (e) {
+      console.error('Journal creation error:', e);
       errors.value.title = 'Could not create journal.';
+      isSubmitting.value = false;
       return;
     }
   }
@@ -316,6 +326,7 @@ async function submit() {
   // Only require entry content if not creating a new journal or if content exists
   if (!creatingNewJournal.value && !hasContent()) {
     errors.value.content = cardType.value === 'checkbox' ? 'At least one checklist item is required.' : 'Entry content is required.';
+    isSubmitting.value = false;
     return;
   }
   
@@ -325,6 +336,7 @@ async function submit() {
       const entryPayload: any = {
         card_type: cardType.value,
         journal_id: journalId,
+        title: entryTitle.value || null,
         mood: selectedMood.value || null
       };
       
@@ -354,13 +366,19 @@ if (cardType.value === 'text') {
           headers: authHeaders(),
           body: JSON.stringify(entryPayload)
         });
-        if (!response.ok) throw new Error('Entry update failed');
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Entry update failed:', response.status, errorText);
+          throw new Error('Entry update failed');
+        }
         const updatedEntry = await response.json();
+        isSubmitting.value = false;
         emit('success', updatedEntry);
       } else {
         // CREATE: POST
         const createPayload: any = {
           card_type: cardType.value,
+          title: entryTitle.value || null,
           mood: selectedMood.value || null
         };
         
@@ -378,7 +396,11 @@ if (cardType.value === 'text') {
           headers: authHeaders(),
           body: JSON.stringify(createPayload)
         });
-        if (!response.ok) throw new Error('Entry create failed');
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Entry create failed:', response.status, errorText);
+          throw new Error('Entry create failed');
+        }
         const newEntry = await response.json();
         const journal = journalStore.journals.find(j => j.id === journalId);
         if (journal) {
@@ -410,10 +432,15 @@ if (cardType.value === 'text') {
           }
         }
         journalStore.stopCreatingEntry();
+        isSubmitting.value = false;
       }
     } catch (e) {
+      console.error('Submit error:', e);
       errors.value.content = isEditMode() ? 'Failed to update entry.' : 'Failed to create entry.';
+      isSubmitting.value = false;
     }
+  } else {
+    isSubmitting.value = false;
   }
 }
 
@@ -511,6 +538,17 @@ function toggleCheckbox(index: number) {
       >
         Spreadsheet
       </button>
+    </div>
+
+    <!-- Entry Title -->
+    <div class="mb-4">
+      <label class="block text-sm font-medium mb-2">Entry Title (optional)</label>
+      <input
+        type="text"
+        v-model="entryTitle"
+        placeholder="Give your entry a title..."
+        class="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
     </div>
 
     <!-- Pin after save (create mode) -->
@@ -644,8 +682,8 @@ function toggleCheckbox(index: number) {
     <div v-if="errors.content" class="text-red-500 text-sm mt-1">{{ errors.content }}</div>
 
     <div class="flex gap-2 mt-4 justify-end">
-      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">{{ buttonLabel }}</button>
-      <button type="button" @click="cancel" class="px-4 py-2 rounded border border-gray-400">{{ discardLabel }}</button>
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded cursor-pointer hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" :disabled="isSubmitting">{{ isSubmitting ? 'Saving...' : buttonLabel }}</button>
+      <button type="button" @click="cancel" class="px-4 py-2 rounded border border-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">{{ discardLabel }}</button>
     </div>
   </form>
 </template>
