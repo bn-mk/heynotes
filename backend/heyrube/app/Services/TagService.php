@@ -16,6 +16,6 @@ class TagService
     {
         $name = trim($name);
         $tag = Tag::firstOrCreate(['name' => $name]);
-        return $tag->name;
+        return $tag;
     }
 }

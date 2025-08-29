@@ -31,16 +31,16 @@ class TagController extends Controller
         $update = [];
 
         if (array_key_exists('name', $validated)) {
-            $update['name'] = array_values(array_unique($validated['name']));
+            $update['name'] = $validated['name'];
         }
 
         $tag = $this->tagService->create($update['name']);
-
+     
         
         if ($request->wantsJson()) {
-            return response()->json(new TagResource($tag), 201);
+            return response()->json(new TagResource(resource: json_decode($tag)), 201);
         }
 
-        return new TagResource($tag);
+        return new TagResource(resource: json_decode($tag));
     }
 }

@@ -306,10 +306,9 @@ this.journals.splice(index, 1, { ...this.journals[index], ...responseData });
         });
         if (response.ok) {
           const createdName = await response.json();
+          console.log('Created tag:', createdName);
           // Update client-side list if not present
-          if (!this.allTags.includes(createdName)) {
-            this.allTags = [...this.allTags, createdName].sort((a, b) => a.localeCompare(b));
-          }
+
           return createdName as string;
         }
       } catch (e) {
