@@ -26,6 +26,7 @@ class JournalController extends Controller
         private JournalService $journalService,
         private JournalEntryService $entryService,
     ) {}
+    
     // List all journals for the current user
     public function index()
     {
