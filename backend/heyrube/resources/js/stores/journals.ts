@@ -357,22 +357,31 @@ export const useJournalStore = defineStore('journal', {
           credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
             'X-XSRF-TOKEN': xsrf,
           },
           body: JSON.stringify({ name }),
         });
         if (response.ok) {
-          return "mock-tag";
-          // let createdName = await response.json();
-          // // Only use the name string, never an object
-          // if (createdName && typeof createdName === 'object' && createdName.name) {
-          //   createdName = createdName.name;
-          // }
-          // if (typeof createdName === 'string' && createdName.trim() !== '') {
-          //   console.log('Created tag:', createdName);
-          //   this.addTagToJournal(this.selectedJournalId || '', createdName);
-          //   return createdName;
-          // }
+          let payload: any = await response.json();
+          let createdName: string | null = null;
+          if (typeof payload === 'string') {
+            createdName = payload;
+          } else if (payload && typeof payload === 'object') {
+            // Handle TagResource or wrapped shapes just in case
+            if (typeof payload.name === 'string') createdName = payload.name;
+            else if (payload.data && typeof payload.data.name === 'string') createdName = payload.data.name;
+          }
+          if (createdName && createdName.trim() !== '') {
+            // Update local tag list
+            if (!this.allTags.includes(createdName)) {
+              this.allTags.push(createdName);
+            }
+            return createdName;
+          }
+        } else {
+          const errorText = await response.text();
+          console.error('Failed to create tag:', response.status, errorText);
         }
       } catch (e) {
         console.error('Failed to create tag', e);

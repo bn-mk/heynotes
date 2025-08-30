@@ -25,22 +25,14 @@ class TagController extends Controller
      * Create a new tag (this would be handled by journal creation/update)
      * This endpoint might not be needed if tags are managed through journals
      */
-    public function store(StoreTagRequest $request): TagResource
+    public function store(StoreTagRequest $request)
     {
         $validated = $request->validated();
-        $update = [];
+        $name = $validated['name'] ?? '';
 
-        if (array_key_exists('name', $validated)) {
-            $update['name'] = $validated['name'];
-        }
+        $tag = $this->tagService->create($name);
 
-        $tag = $this->tagService->create($update['name']);
-     
-        
-        if ($request->wantsJson()) {
-            return response()->json(new TagResource(resource: json_decode($tag)), 201);
-        }
-
-        return new TagResource(resource: json_decode($tag));
+        // Return just the created tag name for simplicity (frontend expects a string)
+        return response()->json($tag->name, 201);
     }
 }

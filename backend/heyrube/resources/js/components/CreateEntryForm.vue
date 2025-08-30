@@ -123,6 +123,9 @@ function defaultPrefill() {
     } else {
       entryContent.value = props.entryToEdit.content || '';
     }
+    // Prefill tags for the journal in edit mode as well
+    const j = journalStore.journals.find(j => j.id === selectedJournalId.value);
+    selectedTags.value = [...(j?.tags || [])];
   } else if (props.createNewJournal) {
     creatingNewJournal.value = true;
     selectedJournalId.value = 'new';
@@ -138,10 +141,10 @@ watch(() => props.createNewJournal, (newVal) => {
 
 // Sync selectedTags when journal changes (creation mode)
 watch(selectedJournalId, (jid) => {
-  if (!isEditMode() && jid && jid !== 'new') {
+  if (jid && jid !== 'new') {
     const j = journalStore.journals.find(j => j.id === jid);
     selectedTags.value = [...(j?.tags || [])];
-  } else if (!isEditMode() && jid === 'new') {
+  } else if (jid === 'new') {
     selectedTags.value = [];
   }
 });
@@ -150,7 +153,7 @@ onMounted(() => {
   // Ensure tags list is loaded
   journalStore.fetchTags?.();
   // Prefill tags from selected journal if any
-  if (!isEditMode() && selectedJournalId.value && selectedJournalId.value !== 'new') {
+  if (selectedJournalId.value && selectedJournalId.value !== 'new') {
     const j = journalStore.journals.find(j => j.id === selectedJournalId.value);
     selectedTags.value = [...(j?.tags || [])];
   }
@@ -348,19 +351,13 @@ if (cardType.value === 'text') {
         entryPayload.content = spreadsheetData.value;
       }
       
-      // If using existing journal, update its tags if changed
-      if (!isEditMode() && journalId && journalId !== 'new') {
+      // Update journal tags if changed (for existing journals)
+      if (journalId && journalId !== 'new') {
         const current = journalStore.journals.find(j => j.id === journalId)?.tags || [];
         const a = [...current].sort();
         const b = [...selectedTags.value].sort();
         if (JSON.stringify(a) !== JSON.stringify(b)) {
           await journalStore.updateJournalTags(journalId, selectedTags.value);
-          // Instantly update Pinia/journal tags for UI (array)
-          if (Array.isArray(selectedTags.value)) {
-            selectedTags.value.forEach(tag => {
-              journalStore.addTagToJournal(journalId, tag);
-            });
-          }
         }
       }
 
@@ -570,7 +567,7 @@ function toggleCheckbox(index: number) {
 
 
     <!-- Tags Selector (applies to the selected journal) -->
-    <div v-if="!isEditMode()" class="mb-4">
+    <div class="mb-4">
       <label class="block text-sm font-medium mb-2">Tags</label>
       <input
         type="text"

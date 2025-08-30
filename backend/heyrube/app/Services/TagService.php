@@ -12,7 +12,7 @@ class TagService
         return Tag::orderBy('name')->pluck('name');
     }
 
-    public function create(string $name): string
+    public function create(string $name): Tag
     {
         $name = trim($name);
         $tag = Tag::firstOrCreate(['name' => $name]);
