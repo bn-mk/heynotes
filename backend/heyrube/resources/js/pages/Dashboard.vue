@@ -4,7 +4,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import Card from '@/components/ui/card/Card.vue';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Check, Square, CheckSquare, Trash2, Pin } from 'lucide-vue-next';
+import { Check, Square, CheckSquare, Trash2, Pin, X } from 'lucide-vue-next';
 import { onMounted, onUnmounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
@@ -595,9 +595,13 @@ onUnmounted(() => {
               </template>
               <template v-else>
                 <div class="flex items-center">
-                  <input v-model="editingJournalTitle" @keyup.enter="handleSaveTitle" @keyup.esc="handleCancelEdit" class="text-2xl font-bold" />
-                  <button @click="handleSaveTitle" class="ml-2 px-2 py-1 bg-green-500 text-white rounded">Save</button>
-                  <button @click="handleCancelEdit" class="ml-2 px-2 py-1 bg-red-500 text-white rounded">Cancel</button>
+                  <input v-model="editingJournalTitle" @keyup.enter="handleSaveTitle" @keyup.esc="handleCancelEdit" class="text-2xl font-bold bg-transparent border-b border-transparent focus:border-zinc-400 dark:focus:border-zinc-600 outline-none" />
+                  <Button variant="ghost" size="icon" class="ml-2 size-10 cursor-pointer" title="Save" @click="handleSaveTitle">
+                    <Check class="size-5 text-zinc-800 dark:text-zinc-100" />
+                  </Button>
+                  <Button variant="ghost" size="icon" class="ml-1 size-10 cursor-pointer" title="Cancel" @click="handleCancelEdit">
+                    <X class="size-5 text-zinc-800 dark:text-zinc-100" />
+                  </Button>
                 </div>
               </template>
             </div>
