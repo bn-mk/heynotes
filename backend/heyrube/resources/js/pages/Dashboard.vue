@@ -73,7 +73,6 @@ async function addNewTag() {
 }
 
 function openTagsDialog() {
-  console.log(journalStore.selectedJournal?.tags);
   tagsDialogOpen.value = true;
   tagSelection.value = [...(journalStore.selectedJournal?.tags || [])];
 }
@@ -634,7 +633,7 @@ onUnmounted(() => {
               </div>
               <DialogFooter>
                 <Button variant="outline" class="cursor-pointer" @click="tagsDialogOpen = false">Cancel</Button>
-                <Button class="cursor-pointer" @click="async () => { if (journalStore.selectedJournal) { await journalStore.updateJournalTags(journalStore.selectedJournal.id, tagSelection); tagsDialogOpen = false; } }">Save</Button>
+                <Button class="cursor-pointer" @click="async () => { if (journalStore.selectedJournal) { console.log('[Dashboard] Save tags for', journalStore.selectedJournal.id, '->', tagSelection); await journalStore.updateJournalTags(journalStore.selectedJournal.id, tagSelection); tagsDialogOpen = false; } }">Save</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

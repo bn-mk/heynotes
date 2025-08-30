@@ -83,14 +83,6 @@ class JournalController extends Controller
     public function update(UpdateJournalRequest $request, Journal $journal)
     {
         $validated = $request->validated();
-        $update = [];
-        if (array_key_exists('title', $validated)) {
-            $update['title'] = $validated['title'];
-        }
-        if (array_key_exists('tags', $validated)) {
-            $update['tags'] = array_values(array_unique($validated['tags']));
-        }
-        $journal->update($update);
         $updated = $this->journalService->updateJournal($journal, $validated);
         return new JournalResource($updated);
     }

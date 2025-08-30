@@ -25,7 +25,7 @@ class JournalService
             $update['tags'] = array_values(array_unique($data['tags']));
         }
         $journal->update($update);
-        return $journal;
+        return $journal->fresh();
     }
 
     public function deleteJournal(string $userId, Journal $journal): void

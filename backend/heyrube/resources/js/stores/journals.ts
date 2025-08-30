@@ -35,6 +35,7 @@ export const useJournalStore = defineStore('journal', {
       this.creatingEntry = false;
     },
     async updateJournal(journalId: string, data: { title?: string, tags?: string[] }) {
+      // console.log("Updating journal", journalId, data);
         const getCookie = (name: string) => {
             const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
             return match ? decodeURIComponent(match[3]) : null;
@@ -42,27 +43,38 @@ export const useJournalStore = defineStore('journal', {
         const xsrf = getCookie('XSRF-TOKEN') ?? '';
 
         try {
+            console.log('[store] updateJournal PUT', journalId, data);
+            console.log('stringify', JSON.stringify(data));
             const response = await fetch(`/api/journals/${journalId}`,
             {
                 method: 'PUT',
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json',
                     'X-XSRF-TOKEN': xsrf,
                 },
                 body: JSON.stringify(data),
             });
 
             if (response.ok) {
-              console.log("DATA", data);
+              // console.log("DATA", data);
                 const updatedJournal = await response.json();
-                const index = this.journals.findIndex(j => j.id === journalId);
+                const idStr = String(journalId);
+                const index = this.journals.findIndex(j => String(j.id) === idStr);
+                console.log('[store] updateJournal found index', index, 'for id', idStr);
                 if (index !== -1) {
+                  // console.log('inside/ -1 if', data);
                     const responseData = updatedJournal.data ? updatedJournal.data : updatedJournal;
-                    this.journals.splice(index, 1, { ...this.journals[index], ...responseData });
-                    // Also update selected if needed
-                    if (this.selectedJournalId === journalId) {
-                        this.journals[index] = { ...this.journals[index] };
-                    }
+                    console.log('Update response data:', responseData);
+
+                    // Create a new array with the updated journal to ensure reactivity
+                    const newJournals = [...this.journals];
+                    const newJournal = { ...responseData, entries: this.journals[index].entries };
+                    newJournals[index] = newJournal;
+                    this.journals = newJournals;
+                } else {
+                    console.warn('[store] updateJournal: journal not found in store. IDs in store:', this.journals.map(j => String(j.id)));
                 }
             } else {
                 console.error('Failed to update journal');
@@ -290,8 +302,51 @@ export const useJournalStore = defineStore('journal', {
         return match ? decodeURIComponent(match[3]) : null;
     },
 
-    async updateJournalTags(journalId: string, tags: string[]) {
-      return this.updateJournal(journalId, { tags });
+    async updateJournalTags(journalId: string, tags: any) {
+      // Accept both a raw array and a Ref<string[]>
+      console.log('[store] updateJournalTags called with', journalId, tags);
+      const normalized: string[] = Array.isArray(tags) ? tags : (tags && Array.isArray(tags.value) ? tags.value : []);
+      console.log('[store] normalized tags:', normalized);
+
+      // Optimistically update local store so UI reflects changes immediately
+      const idStr = String(journalId);
+      const idx = this.journals.findIndex(j => String(j.id) === idStr);
+      console.log('[store] optimistic update index', idx, 'selectedJournalId', this.selectedJournalId);
+      if (idx !== -1) {
+        const newJournals = [...this.journals];
+        const current = newJournals[idx];
+        console.log('[store] prev tags:', (current as any)?.tags);
+        newJournals[idx] = { ...current, tags: [...normalized] } as any;
+        this.journals = newJournals;
+        console.log('[store] optimistic tags set. New tags:', (this.journals[idx] as any).tags);
+      }
+
+      // Persist to backend; server response will later reconcile any differences
+      console.log('[store] persisting to API for', journalId, normalized);
+      return this.updateJournal(journalId, { tags: normalized });
+    },
+
+    addTagToJournal(journalId: string, tag: string) {
+      const idx = this.journals.findIndex(j => String(j.id) === String(journalId));
+      if (idx === -1) return;
+      const current = this.journals[idx];
+      const existing = Array.isArray((current as any).tags) ? (current as any).tags as string[] : [];
+      if (!existing.includes(tag)) {
+        const updated = { ...current, tags: [...existing, tag] } as any;
+        // Use splice to ensure reactivity
+        this.journals.splice(idx, 1, updated);
+      }
+    },
+
+    removeTagFromJournal(journalId: string, tag: string) {
+      const idx = this.journals.findIndex(j => String(j.id) === String(journalId));
+      if (idx === -1) return;
+      const current = this.journals[idx];
+      const existing = Array.isArray((current as any).tags) ? (current as any).tags as string[] : [];
+      if (existing.includes(tag)) {
+        const updated = { ...current, tags: existing.filter(t => t !== tag) } as any;
+        this.journals.splice(idx, 1, updated);
+      }
     },
 
     async createTag(name: string) {
