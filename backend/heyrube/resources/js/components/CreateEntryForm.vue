@@ -355,6 +355,12 @@ if (cardType.value === 'text') {
         const b = [...selectedTags.value].sort();
         if (JSON.stringify(a) !== JSON.stringify(b)) {
           await journalStore.updateJournalTags(journalId, selectedTags.value);
+          // Instantly update Pinia/journal tags for UI (array)
+          if (Array.isArray(selectedTags.value)) {
+            selectedTags.value.forEach(tag => {
+              journalStore.addTagToJournal(journalId, tag);
+            });
+          }
         }
       }
 

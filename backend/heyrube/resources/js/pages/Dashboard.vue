@@ -64,14 +64,20 @@ async function addNewTag() {
     if (!tagSelection.value.includes(created)) {
       tagSelection.value.push(created);
     }
+    // Instantly update Pinia/journal tags for UI
+    if (journalStore.selectedJournalId) {
+      journalStore.addTagToJournal(journalStore.selectedJournalId, created);
+    }
     // keep the filter so user sees it in the list; alternatively clear it
   }
 }
 
 function openTagsDialog() {
+  console.log(journalStore.selectedJournal?.tags);
   tagsDialogOpen.value = true;
   tagSelection.value = [...(journalStore.selectedJournal?.tags || [])];
 }
+
 const draggedEntry = ref(null);
 const draggedOverEntry = ref(null);
 

@@ -14,6 +14,7 @@ export const useJournalStore = defineStore('journal', {
   }),
   getters: {
     selectedJournal(state): JournalListType | null {
+      console.log("Getters - Selected Journal ID:", state.selectedJournalId);
       return state.journals.find(j => j.id === state.selectedJournalId) || null;
     },
   },
@@ -52,16 +53,17 @@ export const useJournalStore = defineStore('journal', {
             });
 
             if (response.ok) {
+              console.log("DATA", data);
                 const updatedJournal = await response.json();
                 const index = this.journals.findIndex(j => j.id === journalId);
-if (index !== -1) {
-    const responseData = updatedJournal.data ? updatedJournal.data : updatedJournal;
-this.journals.splice(index, 1, { ...this.journals[index], ...responseData });
-    // Also update selected if needed
-    if (this.selectedJournalId === journalId) {
-        this.journals[index] = { ...this.journals[index] };
-    }
-}
+                if (index !== -1) {
+                    const responseData = updatedJournal.data ? updatedJournal.data : updatedJournal;
+                    this.journals.splice(index, 1, { ...this.journals[index], ...responseData });
+                    // Also update selected if needed
+                    if (this.selectedJournalId === journalId) {
+                        this.journals[index] = { ...this.journals[index] };
+                    }
+                }
             } else {
                 console.error('Failed to update journal');
             }
@@ -305,11 +307,17 @@ this.journals.splice(index, 1, { ...this.journals[index], ...responseData });
           body: JSON.stringify({ name }),
         });
         if (response.ok) {
-          const createdName = await response.json();
-          console.log('Created tag:', createdName);
-          // Update client-side list if not present
-
-          return createdName as string;
+          return "mock-tag";
+          // let createdName = await response.json();
+          // // Only use the name string, never an object
+          // if (createdName && typeof createdName === 'object' && createdName.name) {
+          //   createdName = createdName.name;
+          // }
+          // if (typeof createdName === 'string' && createdName.trim() !== '') {
+          //   console.log('Created tag:', createdName);
+          //   this.addTagToJournal(this.selectedJournalId || '', createdName);
+          //   return createdName;
+          // }
         }
       } catch (e) {
         console.error('Failed to create tag', e);

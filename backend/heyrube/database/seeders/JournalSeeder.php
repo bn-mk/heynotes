@@ -16,9 +16,9 @@ class JournalSeeder extends Seeder
         $tags = Tag::all()->pluck('name')->toArray();
 
         $journals = [
-            ['title' => 'Misc.', 'tags' => array_rand($tags, 3)],
-            ['title' => 'Lyrics & Poems', 'tags' => array_rand($tags, 2)],
-            ['title' => 'Music Ideas', 'tags' => array_rand($tags,3)],
+            ['title' => 'Misc.', 'tags' => array_splice($tags, 0, 3)],
+            ['title' => 'Lyrics & Poems', 'tags' => array_splice($tags, 0, 3)],
+            ['title' => 'Music Ideas', 'tags' => array_splice($tags,0, 2)],
         ];
 
         foreach ($journals as $j) {
