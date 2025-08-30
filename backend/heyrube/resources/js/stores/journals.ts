@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
 import type { JournalListType } from '@/types';
+import { jsonFetch } from '@/lib/api';
+import { devLog } from '@/lib/logger';
 
 export const useJournalStore = defineStore('journal', {
   state: () => ({
@@ -36,37 +38,20 @@ export const useJournalStore = defineStore('journal', {
     },
     async updateJournal(journalId: string, data: { title?: string, tags?: string[] }) {
       // console.log("Updating journal", journalId, data);
-        const getCookie = (name: string) => {
-            const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
-            return match ? decodeURIComponent(match[3]) : null;
-        };
-        const xsrf = getCookie('XSRF-TOKEN') ?? '';
-
         try {
-            console.log('[store] updateJournal PUT', journalId, data);
-            console.log('stringify', JSON.stringify(data));
-            const response = await fetch(`/api/journals/${journalId}`,
-            {
-                method: 'PUT',
-                credentials: 'include',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-XSRF-TOKEN': xsrf,
-                },
-                body: JSON.stringify(data),
-            });
+            devLog('[store] updateJournal PUT', journalId, data);
+            devLog('stringify', JSON.stringify(data));
 
-            if (response.ok) {
-              // console.log("DATA", data);
-                const updatedJournal = await response.json();
+            const updatedJournal = await jsonFetch(`/api/journals/${journalId}`, {
+              method: 'PUT',
+              json: data,
+            });
                 const idStr = String(journalId);
                 const index = this.journals.findIndex(j => String(j.id) === idStr);
-                console.log('[store] updateJournal found index', index, 'for id', idStr);
+                devLog('[store] updateJournal found index', index, 'for id', idStr);
                 if (index !== -1) {
-                  // console.log('inside/ -1 if', data);
-                    const responseData = updatedJournal.data ? updatedJournal.data : updatedJournal;
-                    console.log('Update response data:', responseData);
+                    const responseData = (updatedJournal as any).data ? (updatedJournal as any).data : updatedJournal;
+                    devLog('Update response data:', responseData);
 
                     // Create a new array with the updated journal to ensure reactivity
                     const newJournals = [...this.journals];
@@ -74,26 +59,16 @@ export const useJournalStore = defineStore('journal', {
                     newJournals[index] = newJournal;
                     this.journals = newJournals;
                 } else {
-                    console.warn('[store] updateJournal: journal not found in store. IDs in store:', this.journals.map(j => String(j.id)));
+                    devLog('[store] updateJournal: journal not found in store. IDs in store:', this.journals.map(j => String(j.id)));
                 }
-            } else {
-                console.error('Failed to update journal');
-            }
         } catch (error) {
             console.error('Error updating journal:', error);
         }
     },
 
     async fetchTags() {
-      const xsrf = this.getCookie('XSRF-TOKEN') ?? '';
       try {
-        const response = await fetch('/api/tags', {
-          credentials: 'include',
-          headers: { 'X-XSRF-TOKEN': xsrf },
-        });
-        if (response.ok) {
-          this.allTags = await response.json();
-        }
+        this.allTags = await jsonFetch<string[]>('/api/tags');
       } catch (e) {
         console.error('Failed to fetch tags', e);
       }
@@ -304,25 +279,25 @@ export const useJournalStore = defineStore('journal', {
 
     async updateJournalTags(journalId: string, tags: any) {
       // Accept both a raw array and a Ref<string[]>
-      console.log('[store] updateJournalTags called with', journalId, tags);
+      devLog('[store] updateJournalTags called with', journalId, tags);
       const normalized: string[] = Array.isArray(tags) ? tags : (tags && Array.isArray(tags.value) ? tags.value : []);
-      console.log('[store] normalized tags:', normalized);
+      devLog('[store] normalized tags:', normalized);
 
       // Optimistically update local store so UI reflects changes immediately
       const idStr = String(journalId);
       const idx = this.journals.findIndex(j => String(j.id) === idStr);
-      console.log('[store] optimistic update index', idx, 'selectedJournalId', this.selectedJournalId);
+      devLog('[store] optimistic update index', idx, 'selectedJournalId', this.selectedJournalId);
       if (idx !== -1) {
         const newJournals = [...this.journals];
         const current = newJournals[idx];
-        console.log('[store] prev tags:', (current as any)?.tags);
+        devLog('[store] prev tags:', (current as any)?.tags);
         newJournals[idx] = { ...current, tags: [...normalized] } as any;
         this.journals = newJournals;
-        console.log('[store] optimistic tags set. New tags:', (this.journals[idx] as any).tags);
+        devLog('[store] optimistic tags set. New tags:', (this.journals[idx] as any).tags);
       }
 
       // Persist to backend; server response will later reconcile any differences
-      console.log('[store] persisting to API for', journalId, normalized);
+      devLog('[store] persisting to API for', journalId, normalized);
       return this.updateJournal(journalId, { tags: normalized });
     },
 
@@ -350,20 +325,11 @@ export const useJournalStore = defineStore('journal', {
     },
 
     async createTag(name: string) {
-      const xsrf = this.getCookie('XSRF-TOKEN') ?? '';
       try {
-        const response = await fetch('/api/tags', {
+        const payload: any = await jsonFetch('/api/tags', {
           method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-XSRF-TOKEN': xsrf,
-          },
-          body: JSON.stringify({ name }),
+          json: { name },
         });
-        if (response.ok) {
-          let payload: any = await response.json();
           let createdName: string | null = null;
           if (typeof payload === 'string') {
             createdName = payload;
@@ -379,10 +345,6 @@ export const useJournalStore = defineStore('journal', {
             }
             return createdName;
           }
-        } else {
-          const errorText = await response.text();
-          console.error('Failed to create tag:', response.status, errorText);
-        }
       } catch (e) {
         console.error('Failed to create tag', e);
       }
