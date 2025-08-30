@@ -32,6 +32,12 @@ const pinAfterSave = ref(false);
 // Tags state
 const selectedTags = ref<string[]>([]);
 const tagFilter = ref('');
+const canAddTag = computed(() => {
+  const name = tagFilter.value.trim();
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return !journalStore.allTags.some(t => t.toLowerCase() === lower);
+});
 const isSubmitting = ref(false);
 
 const spreadsheetContainer = ref<HTMLDivElement | null>(null);
@@ -186,6 +192,19 @@ function getCookie(name: string) {
   const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
   return match ? decodeURIComponent(match[3]) : null;
 }
+async function addNewTag() {
+  const name = tagFilter.value.trim();
+  if (!name) return;
+  const created = await journalStore.createTag(name);
+  if (created) {
+    if (!selectedTags.value.includes(created)) {
+      selectedTags.value.push(created);
+    }
+    // Clear the filter so the full list is visible again
+    tagFilter.value = '';
+  }
+}
+
 function authHeaders() {
   return { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': getCookie('XSRF-TOKEN') ?? '' };
 }
@@ -572,9 +591,16 @@ function toggleCheckbox(index: number) {
       <input
         type="text"
         v-model="tagFilter"
-        placeholder="Filter tags..."
+        @keyup.enter.prevent="canAddTag && addNewTag()"
+        placeholder="Filter or add tag..."
         class="w-full mb-2 px-2 py-1 border rounded"
       />
+      <div v-if="canAddTag" class="flex items-center justify-between text-sm mb-2">
+        <span class="text-muted-foreground">New tag:</span>
+        <button type="button" class="px-2 py-1 border rounded cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700" @click="addNewTag">
+          Add "{{ tagFilter.trim() }}"
+        </button>
+      </div>
       <div class="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 border rounded">
         <label
           v-for="name in (journalStore.allTags || []).filter(t => !tagFilter || t.toLowerCase().includes(tagFilter.toLowerCase()))"
