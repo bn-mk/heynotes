@@ -44,6 +44,7 @@ const spreadsheetContainer = ref<HTMLDivElement | null>(null);
 const isPinned = ref<boolean>(!!props.entryToEdit?.pinned);
 let spreadsheetInstance: any = null;
 let darkModeObserver: MutationObserver | null = null;
+let sheetResizeObserver: ResizeObserver | null = null;
 
 watch(cardType, async (newType, oldType) => {
   if (oldType === 'spreadsheet' && spreadsheetInstance) {
@@ -63,9 +64,14 @@ watch(cardType, async (newType, oldType) => {
 
       try {
         const initialData = spreadsheetData.value.trim() ? JSON.parse(spreadsheetData.value) : [[]];
+        const colCount = 10;
+        const containerWidth = spreadsheetContainer.value.clientWidth || 1200;
+        const colWidth = Math.max(60, Math.floor(containerWidth / colCount));
+        const columns = Array.from({ length: colCount }, () => ({ width: colWidth }));
+
         spreadsheetInstance = jspreadsheet(spreadsheetContainer.value, {
           data: initialData,
-          minDimensions: [5, 10],
+          minDimensions: [colCount, 10],
           tableOverflow: true,
           tableWidth: '100%',
           tableHeight: '400px',
@@ -73,14 +79,29 @@ watch(cardType, async (newType, oldType) => {
           allowInsertRow: true,
           allowDeleteColumn: true,
           allowDeleteRow: true,
-          defaultColWidth: 120,
+          columns,
         });
+        // Ensure widths are applied after initial paint
+        updateSpreadsheetColWidths();
       } catch (e) {
         console.error('Failed to parse spreadsheet data:', e);
-        spreadsheetInstance = jspreadsheet(spreadsheetContainer.value, {
+        const colCount = 10;
+        const containerWidth = spreadsheetContainer.value?.clientWidth || 1200;
+        const colWidth = Math.max(60, Math.floor(containerWidth / colCount));
+        const columns = Array.from({ length: colCount }, () => ({ width: colWidth }));
+        spreadsheetInstance = jspreadsheet(spreadsheetContainer.value!, {
           data: [[]],
-          minDimensions: [10, 5],
+          minDimensions: [colCount, 10],
+          tableOverflow: true,
+          tableWidth: '100%',
+          tableHeight: '400px',
+          allowInsertColumn: true,
+          allowInsertRow: true,
+          allowDeleteColumn: true,
+          allowDeleteRow: true,
+          columns,
         });
+        updateSpreadsheetColWidths();
       }
     }
   }
@@ -179,12 +200,28 @@ onMounted(() => {
     attributes: true,
     attributeFilter: ['class'],
   });
+
+  // Observe spreadsheet container resize to keep columns filling container
+  if ('ResizeObserver' in window && spreadsheetContainer.value) {
+    sheetResizeObserver = new ResizeObserver(() => {
+      updateSpreadsheetColWidths();
+    });
+    sheetResizeObserver.observe(spreadsheetContainer.value);
+  }
+
+  // Also handle window resize as a fallback
+  window.addEventListener('resize', updateSpreadsheetColWidths);
 });
 
 onUnmounted(() => {
   if (darkModeObserver) {
     darkModeObserver.disconnect();
   }
+  if (sheetResizeObserver) {
+    try { sheetResizeObserver.disconnect(); } catch {}
+    sheetResizeObserver = null;
+  }
+  window.removeEventListener('resize', updateSpreadsheetColWidths);
 });
 
 // HELPERS
@@ -203,6 +240,25 @@ async function addNewTag() {
     // Clear the filter so the full list is visible again
     tagFilter.value = '';
   }
+}
+
+function updateSpreadsheetColWidths() {
+  try {
+    if (!spreadsheetInstance || !spreadsheetContainer.value) return;
+    const colCount = (spreadsheetInstance.options?.columns?.length) || 10;
+    const containerWidth = spreadsheetContainer.value.clientWidth || 1200;
+    const colWidth = Math.max(60, Math.floor(containerWidth / colCount));
+    for (let i = 0; i < colCount; i++) {
+      try {
+        // jSpreadsheet API: setWidth(columnIndex, width)
+        spreadsheetInstance.setWidth?.(i, colWidth);
+      } catch {}
+      if (spreadsheetInstance.options?.columns?.[i]) {
+        spreadsheetInstance.options.columns[i].width = colWidth;
+      }
+    }
+    try { spreadsheetInstance.refresh?.(); } catch {}
+  } catch {}
 }
 
 function authHeaders() {

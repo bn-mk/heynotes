@@ -20,7 +20,7 @@ onMounted(() => {
     const src: any[] = Array.isArray(parsed) ? parsed : [];
     // Take first 5 rows and 5 cols, pad to 5x5
     const rows = 5;
-    const cols = 5;
+    const cols = 10;
     const sliced = src.slice(0, rows).map(r => (Array.isArray(r) ? r.slice(0, cols) : Array(cols).fill('')));
     while (sliced.length < rows) sliced.push(Array(cols).fill(''));
     for (let i = 0; i < rows; i++) {
