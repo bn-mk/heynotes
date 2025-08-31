@@ -161,6 +161,9 @@ async function startRecording() {
     // Pick the best supported MIME type; gracefully fallback if constructor rejects
     const MR: any = (window as any).MediaRecorder;
     const candidates = [
+      // Prefer video/webm so backend MIME guessing maps to extension 'webm' (avoids 'weba')
+      'video/webm;codecs=opus',
+      'video/webm',
       'audio/webm;codecs=opus',
       'audio/webm',
       'audio/ogg;codecs=opus',
@@ -176,7 +179,7 @@ async function startRecording() {
       }
     }
     // Map extension for the chosen type
-    audioMime.value = chosen || 'audio/webm';
+    audioMime.value = chosen || 'video/webm';
     if (audioMime.value.includes('ogg')) audioExt.value = 'ogg';
     else if (audioMime.value.includes('mp4')) audioExt.value = 'm4a';
     else if (audioMime.value.includes('mpeg')) audioExt.value = 'mp3';
@@ -202,7 +205,9 @@ async function startRecording() {
       if (e.data && e.data.size > 0) audioChunks.value.push(e.data);
     };
     rec.onstop = () => {
-      const type = (rec && rec.mimeType) || audioMime.value || 'audio/webm';
+      let type = (rec && rec.mimeType) || audioMime.value || 'video/webm';
+      // Normalize to server-friendly MIME where needed
+      if (/^audio\/webm/i.test(type)) type = 'video/webm';
       audioBlob.value = new Blob(audioChunks.value, { type });
       if (audioUrl.value) {
         try { URL.revokeObjectURL(audioUrl.value); } catch {}
@@ -1067,7 +1072,7 @@ function toggleCheckbox(index: number) {
         <div v-else>
           <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 p-3">
             <AudioWaveform :src="audioUrl || audioUploadedUrl" :audio-el="audioPlayerRef" :height="64" />
-            <audio controls class="w-full mt-2" ref="audioPlayerRef">
+            <audio controls class="w-full mt-2 dark-audio" ref="audioPlayerRef">
               <source :src="audioUrl || audioUploadedUrl" :type="audioPlayerType" />
             </audio>
             <div class="mt-2 flex gap-2">
@@ -1088,4 +1093,27 @@ function toggleCheckbox(index: number) {
     </div>
   </form>
 </template>
+
+<style>
+/* Dark style for native audio controls (WebKit-based browsers) */
+html.dark .dark-audio::-webkit-media-controls-panel {
+  background-color: #0b1220; /* near slate-900 */
+}
+html.dark .dark-audio::-webkit-media-controls-enclosure {
+  border-radius: 8px;
+  background-color: transparent;
+}
+html.dark .dark-audio::-webkit-media-controls-current-time-display,
+html.dark .dark-audio::-webkit-media-controls-time-remaining-display {
+  color: #e5e7eb; /* zinc-200 */
+}
+html.dark .dark-audio::-webkit-media-controls-mute-button,
+html.dark .dark-audio::-webkit-media-controls-play-button,
+html.dark .dark-audio::-webkit-media-controls-timeline,
+html.dark .dark-audio::-webkit-media-controls-volume-slider,
+html.dark .dark-audio::-webkit-media-controls-seek-back-button,
+html.dark .dark-audio::-webkit-media-controls-seek-forward-button {
+  filter: invert(0.9) hue-rotate(180deg) saturate(0.8);
+}
+</style>
 

@@ -19,6 +19,7 @@ let analyser: AnalyserNode | null = null;
 let sourceNode: MediaStreamAudioSourceNode | null = null;
 let timeData: Uint8Array | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let parentResizeObserver: ResizeObserver | null = null;
 let themeObserver: MutationObserver | null = null;
 
 function isDarkMode() {
@@ -26,6 +27,13 @@ function isDarkMode() {
 }
 
 const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+
+function scheduleStaticRender() {
+  // Double RAF to ensure layout has settled before measuring widths
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    renderStaticWave();
+  }));
+}
 
 function getAudioElement(): HTMLAudioElement | null {
   const el = (props.audioEl as any)?.value ?? props.audioEl;
@@ -125,31 +133,38 @@ async function ensureDecoded(): Promise<void> {
   }
 }
 
-function computePeaks(buffer: AudioBuffer, buckets: number): Float32Array {
+function computeMinMaxPeaks(buffer: AudioBuffer, buckets: number): { min: Float32Array, max: Float32Array } {
   const chs = buffer.numberOfChannels;
   const length = buffer.length;
   const samplesPerBucket = Math.max(1, Math.floor(length / buckets));
-  const peaks = new Float32Array(buckets);
+  const stride = Math.max(1, Math.floor(samplesPerBucket / 64));
+  const min = new Float32Array(buckets);
+  const max = new Float32Array(buckets);
   for (let b = 0; b < buckets; b++) {
     let start = b * samplesPerBucket;
     let end = Math.min(length, start + samplesPerBucket);
-    let max = 0;
-    for (let i = start; i < end; i += 16) { // stride for performance
-      let sum = 0;
+    let mn = 1.0;
+    let mx = -1.0;
+    for (let i = start; i < end; i += stride) {
+      let val = 0;
       for (let c = 0; c < chs; c++) {
-        sum += Math.abs(buffer.getChannelData(c)[i] || 0);
+        val += buffer.getChannelData(c)[i] || 0;
       }
-      const v = sum / chs;
-      if (v > max) max = v;
+      val = val / chs; // average channels
+      if (val < mn) mn = val;
+      if (val > mx) mx = val;
     }
-    peaks[b] = max;
+    min[b] = mn;
+    max[b] = mx;
   }
-  // normalize
-  let globalMax = 0;
-  for (let i = 0; i < buckets; i++) globalMax = Math.max(globalMax, peaks[i]);
-  const norm = globalMax > 0 ? 1 / globalMax : 1;
-  for (let i = 0; i < buckets; i++) peaks[i] *= norm;
-  return peaks;
+  // normalize by global max abs
+  let globalMaxAbs = 0;
+  for (let i = 0; i < buckets; i++) {
+    globalMaxAbs = Math.max(globalMaxAbs, Math.abs(min[i]), Math.abs(max[i]));
+  }
+  const norm = globalMaxAbs > 0 ? 1 / globalMaxAbs : 1;
+  for (let i = 0; i < buckets; i++) { min[i] *= norm; max[i] *= norm; }
+  return { min, max };
 }
 
 function drawStatic(progress = -1) {
@@ -177,43 +192,73 @@ function drawStatic(progress = -1) {
   const prog = props.progressColor || (dark ? '#60a5fa' : '#3b82f6');
 
   if (!decodedBuffer) {
-    // Placeholder: draw a midline bar and optional progress overlay
+    // Rich placeholder: draw multiple soft bars to indicate waveform area
+    const bars = Math.max(24, Math.floor(width / 20));
+    const barW = Math.max(2, Math.floor(width / (bars * 1.3)));
+    const gap = Math.max(1, Math.floor(barW * 0.3));
     const mid = Math.floor(height / 2);
-    const barH = Math.max(2, Math.floor(3 * dpr));
-    ctx.fillStyle = bgBar;
-    ctx.fillRect(0, mid - Math.floor(barH / 2), width, barH);
+    for (let i = 0; i < bars; i++) {
+      const x = i * (barW + gap);
+      // Pseudo-random but stable heights using sine
+      const amp = Math.max(4, Math.floor((0.35 + 0.65 * Math.abs(Math.sin(i * 0.7))) * height * 0.6));
+      const y = Math.floor(amp / 2);
+      ctx.fillStyle = i % 3 === 0 ? bgBar : fg;
+      ctx.fillRect(x, mid - y, barW, y * 2);
+    }
     if (progress >= 0) {
       const px = Math.floor(progress * width);
-      ctx.fillStyle = prog;
-      ctx.fillRect(0, mid - Math.floor(barH / 2), Math.max(1, px), barH);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, px, height);
+      ctx.clip();
+      ctx.fillStyle = prog + 'cc';
+      for (let i = 0; i < bars; i++) {
+        const x = i * (barW + gap);
+        const amp = Math.max(4, Math.floor((0.35 + 0.65 * Math.abs(Math.sin(i * 0.7))) * height * 0.6));
+        const y = Math.floor(amp / 2);
+        ctx.fillRect(x, mid - y, barW, y * 2);
+      }
+      ctx.restore();
     }
     return;
   }
 
-  const buckets = Math.min(width, 1200);
-  const peaks = computePeaks(decodedBuffer, buckets);
+  // Use one bucket per device pixel for crispness, cap for perf
+  const buckets = Math.min(width, 4000);
+  const { min, max } = computeMinMaxPeaks(decodedBuffer, buckets);
 
-  // Draw background waveform
+  // Draw filled waveform area
   const mid = Math.floor(height / 2);
-  const barW = Math.max(1, Math.floor(width / buckets));
+  const scaleY = height * 0.45; // vertical scale
 
-  // Background bars
+  // Background area (bgBar)
   ctx.fillStyle = bgBar;
+  ctx.beginPath();
+  // upper path
   for (let i = 0; i < buckets; i++) {
-    const x = i * barW;
-    const amp = Math.max(1, Math.floor(peaks[i] * height * 0.9));
-    const y = Math.max(1, Math.floor(amp / 2));
-    ctx.fillRect(x, mid - y, barW - 1, y * 2);
+    const x = Math.floor((i / (buckets - 1)) * (width - 1));
+    const y = Math.floor(mid - (max[i] * scaleY));
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
+  // lower path (reverse)
+  for (let i = buckets - 1; i >= 0; i--) {
+    const x = Math.floor((i / (buckets - 1)) * (width - 1));
+    const y = Math.floor(mid - (min[i] * scaleY));
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
 
-  // Foreground bars
-  ctx.fillStyle = fg;
+  // Foreground stroke for detail
+  ctx.strokeStyle = fg;
+  ctx.lineWidth = Math.max(1, Math.floor(1 * dpr));
+  ctx.beginPath();
   for (let i = 0; i < buckets; i++) {
-    const x = i * barW;
-    const amp = Math.max(1, Math.floor(peaks[i] * height * 0.66));
-    const y = Math.max(1, Math.floor(amp / 2));
-    ctx.fillRect(x, mid - y, barW - 1, y * 2);
+    const x = Math.floor((i / (buckets - 1)) * (width - 1));
+    const y = Math.floor(mid - ((max[i] + min[i]) * 0.5 * scaleY));
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
+  ctx.stroke();
 
   // Progress overlay if provided
   if (progress >= 0) {
@@ -223,13 +268,32 @@ function drawStatic(progress = -1) {
       ctx.beginPath();
       ctx.rect(0, 0, px, height);
       ctx.clip();
+      // Fill progress area
       ctx.fillStyle = prog;
+      ctx.beginPath();
       for (let i = 0; i < buckets; i++) {
-        const x = i * barW;
-        const amp = Math.max(1, Math.floor(peaks[i] * height * 0.9));
-        const y = Math.max(1, Math.floor(amp / 2));
-        ctx.fillRect(x, mid - y, barW - 1, y * 2);
+        const x = Math.floor((i / (buckets - 1)) * (width - 1));
+        const y = Math.floor(mid - (max[i] * scaleY));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
+      for (let i = buckets - 1; i >= 0; i--) {
+        const x = Math.floor((i / (buckets - 1)) * (width - 1));
+        const y = Math.floor(mid - (min[i] * scaleY));
+        ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Progress stroke
+      ctx.strokeStyle = prog;
+      ctx.lineWidth = Math.max(1, Math.floor(1 * dpr));
+      ctx.beginPath();
+      for (let i = 0; i < buckets; i++) {
+        const x = Math.floor((i / (buckets - 1)) * (width - 1));
+        const y = Math.floor(mid - ((max[i] + min[i]) * 0.5 * scaleY));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
       ctx.restore();
     }
   }
@@ -273,6 +337,12 @@ onMounted(async () => {
       else renderStaticWave();
     });
     resizeObserver.observe(canvasRef.value);
+    if (canvasRef.value.parentElement) {
+      parentResizeObserver = new ResizeObserver(() => {
+        if (!props.stream) renderStaticWave();
+      });
+      parentResizeObserver.observe(canvasRef.value.parentElement);
+    }
   }
   // React to theme toggles
   try {
@@ -304,6 +374,10 @@ onUnmounted(() => {
     try { themeObserver.disconnect(); } catch {}
     themeObserver = null;
   }
+  if (parentResizeObserver) {
+    try { parentResizeObserver.disconnect(); } catch {}
+    parentResizeObserver = null;
+  }
 });
 
 watch(() => props.stream, (s) => {
@@ -312,7 +386,7 @@ watch(() => props.stream, (s) => {
 watch(() => props.src, async (s) => {
   if (s) {
     decodedBuffer = null;
-    await renderStaticWave();
+    scheduleStaticRender();
   }
 });
 watch(() => props.audioEl, (el) => {
