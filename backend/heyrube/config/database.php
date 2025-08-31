@@ -1,11 +1,10 @@
 <?php
 
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\App;
 
-if (App::environment(['testing', 'local'])) {
+if (config('app.env') === 'local' || config('app.env') === 'testing') {
     
-    \Illuminate\Support\Facades\URL::forceScheme('https');
+    // \Illuminate\Support\Facades\URL::forceScheme('https');
     // Build a MongoDB DSN that is safe for standalone servers (no replica set)
     $__mongoDsn = env('MONGODB_URI', 'mongodb://127.0.0.1:27017');
     if (!str_contains($__mongoDsn, 'retryWrites')) {
