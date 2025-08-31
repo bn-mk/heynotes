@@ -19,6 +19,11 @@ let analyser: AnalyserNode | null = null;
 let sourceNode: MediaStreamAudioSourceNode | null = null;
 let timeData: Uint8Array | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let themeObserver: MutationObserver | null = null;
+
+function isDarkMode() {
+  return document.documentElement.classList.contains('dark');
+}
 
 const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
 
@@ -151,7 +156,9 @@ function drawStatic(progress = -1) {
   if (!canvasRef.value) return;
   const canvas = canvasRef.value;
   const rect = canvas.getBoundingClientRect();
-  const width = Math.max(1, Math.floor(rect.width * dpr));
+  const parentRect = canvas.parentElement?.getBoundingClientRect();
+  const baseWidth = rect.width || parentRect?.width || canvas.clientWidth || (canvas.parentElement as HTMLElement | null)?.clientWidth || 300;
+  const width = Math.max(1, Math.floor(baseWidth * dpr));
   const heightCss = props.height || 64;
   const height = Math.max(1, Math.floor(heightCss * dpr));
   if (canvas.width !== width || canvas.height !== height) {
@@ -164,13 +171,16 @@ function drawStatic(progress = -1) {
   if (!ctx) return;
   clearCanvas(ctx, width, height);
 
+  const dark = isDarkMode();
+  const bgBar = props.backgroundColor || (dark ? '#374151' : '#e5e7eb');
+  const fg = props.color || (dark ? '#9ca3af' : '#64748b');
+  const prog = props.progressColor || (dark ? '#60a5fa' : '#3b82f6');
+
   if (!decodedBuffer) {
     // Placeholder: draw a midline bar and optional progress overlay
-    const bg = props.backgroundColor || '#e5e7eb';
-    const prog = props.progressColor || '#3b82f6';
     const mid = Math.floor(height / 2);
     const barH = Math.max(2, Math.floor(3 * dpr));
-    ctx.fillStyle = bg;
+    ctx.fillStyle = bgBar;
     ctx.fillRect(0, mid - Math.floor(barH / 2), width, barH);
     if (progress >= 0) {
       const px = Math.floor(progress * width);
@@ -184,14 +194,11 @@ function drawStatic(progress = -1) {
   const peaks = computePeaks(decodedBuffer, buckets);
 
   // Draw background waveform
-  const bg = props.backgroundColor || '#e5e7eb';
-  const fg = props.color || '#64748b';
-  const prog = props.progressColor || '#3b82f6';
   const mid = Math.floor(height / 2);
   const barW = Math.max(1, Math.floor(width / buckets));
 
-  // Background
-  ctx.fillStyle = bg;
+  // Background bars
+  ctx.fillStyle = bgBar;
   for (let i = 0; i < buckets; i++) {
     const x = i * barW;
     const amp = Math.max(1, Math.floor(peaks[i] * height * 0.9));
@@ -199,7 +206,7 @@ function drawStatic(progress = -1) {
     ctx.fillRect(x, mid - y, barW - 1, y * 2);
   }
 
-  // Foreground (full waveform)
+  // Foreground bars
   ctx.fillStyle = fg;
   for (let i = 0; i < buckets; i++) {
     const x = i * barW;
@@ -267,6 +274,14 @@ onMounted(async () => {
     });
     resizeObserver.observe(canvasRef.value);
   }
+  // React to theme toggles
+  try {
+    themeObserver = new MutationObserver(() => {
+      if (!props.stream) renderStaticWave();
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  } catch {}
+
   // Attempt to resume audio context on first user interaction (autoplay policies)
   const resumeIfNeeded = async () => {
     try { if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume(); } catch {}
@@ -285,6 +300,10 @@ onUnmounted(() => {
     try { resizeObserver.disconnect(); } catch {}
     resizeObserver = null;
   }
+  if (themeObserver) {
+    try { themeObserver.disconnect(); } catch {}
+    themeObserver = null;
+  }
 });
 
 watch(() => props.stream, (s) => {
@@ -296,9 +315,14 @@ watch(() => props.src, async (s) => {
     await renderStaticWave();
   }
 });
+watch(() => props.audioEl, (el) => {
+  if (el) attachProgressUpdates();
+});
 </script>
 
 <template>
-  <canvas ref="canvasRef" style="display:block;width:100%;height:64px;border-radius:6px;" />
+  <div class="w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50/80 dark:bg-zinc-800/60 overflow-hidden">
+    <canvas ref="canvasRef" style="display:block;width:100%;height:64px" />
+  </div>
 </template>
 

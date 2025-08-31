@@ -1055,21 +1055,25 @@ function toggleCheckbox(index: number) {
         </div>
 
         <div v-if="!audioUrl && !audioUploadedUrl" class="flex flex-col gap-2">
-          <AudioWaveform v-if="isRecordingAudio && audioStream" :stream="audioStream" :height="64" />
-          <div class="flex items-center gap-2">
-            <button type="button" @click="startRecording" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">Start Recording</button>
-            <span v-if="isRecordingAudio" class="text-sm text-red-500">Recording... {{ audioSeconds }}s</span>
-            <button v-if="isRecordingAudio" type="button" @click="stopRecording" class="px-3 py-1 border rounded">Stop</button>
+          <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 p-3">
+            <AudioWaveform v-if="isRecordingAudio && audioStream" :stream="audioStream" :height="64" />
+            <div class="flex items-center gap-2 mt-2">
+              <button type="button" @click="startRecording" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">Start Recording</button>
+              <span v-if="isRecordingAudio" class="text-sm text-red-500">Recording... {{ audioSeconds }}s</span>
+              <button v-if="isRecordingAudio" type="button" @click="stopRecording" class="px-3 py-1 border rounded">Stop</button>
+            </div>
           </div>
         </div>
         <div v-else>
-          <AudioWaveform :src="audioUrl || audioUploadedUrl" :height="64" />
-          <audio controls class="w-full mt-2" ref="audioPlayerRef">
-            <source :src="audioUrl || audioUploadedUrl" :type="audioPlayerType" />
-          </audio>
-          <div class="mt-2 flex gap-2">
-            <button type="button" @click="discardAudio" class="px-3 py-1 border rounded">Discard</button>
-            <button type="button" @click="startRecording" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">Re-record</button>
+          <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 p-3">
+            <AudioWaveform :src="audioUrl || audioUploadedUrl" :audio-el="audioPlayerRef" :height="64" />
+            <audio controls class="w-full mt-2" ref="audioPlayerRef">
+              <source :src="audioUrl || audioUploadedUrl" :type="audioPlayerType" />
+            </audio>
+            <div class="mt-2 flex gap-2">
+              <button type="button" @click="discardAudio" class="px-3 py-1 border rounded">Discard</button>
+              <button type="button" @click="startRecording" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">Re-record</button>
+            </div>
           </div>
         </div>
         <div v-if="audioError" class="text-red-500 text-sm mt-1">{{ audioError }}</div>

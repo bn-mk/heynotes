@@ -4,7 +4,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import Card from '@/components/ui/card/Card.vue';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Check, Square, CheckSquare, Trash2, Pin, X } from 'lucide-vue-next';
+import { Check, Square, CheckSquare, Trash2, Pin, X, Play, Pause } from 'lucide-vue-next';
 import { onMounted, onUnmounted } from 'vue';
 import { JournalListType } from '@/types';
 import { useJournalStore } from '@/stores/journals';
@@ -12,7 +12,6 @@ import CreateEntryForm from '@/components/CreateEntryForm.vue';
 import Spreadsheet from '@/components/Spreadsheet.vue';
 import DeleteEntryButton from '@/components/DeleteEntryButton.vue';
 import LinkEntryButton from '@/components/LinkEntryButton.vue';
-import AudioWaveform from '@/components/AudioWaveform.vue';
 
 const props = defineProps<{
   journals: JournalListType[],
@@ -21,9 +20,43 @@ const props = defineProps<{
 const journalStore = useJournalStore();
 // Local audio element refs per entry id (do not mutate entry objects)
 const audioElMap = reactive<Record<string, { value: HTMLAudioElement | null }>>({});
+const playingMap = reactive<Record<string, boolean>>({});
 function setAudioEl(id: string, el: HTMLAudioElement | null) {
   if (!audioElMap[id]) (audioElMap as any)[id] = { value: null };
   audioElMap[id].value = el;
+  if (el) {
+    if (!(el as any)._amListenersAttached) {
+      const onPlay = () => { playingMap[id] = true; };
+      const onPause = () => { playingMap[id] = false; };
+      const onEnded = () => { playingMap[id] = false; try { el.currentTime = 0; } catch {} };
+      el.addEventListener('play', onPlay);
+      el.addEventListener('pause', onPause);
+      el.addEventListener('ended', onEnded);
+      (el as any)._amListenersAttached = true;
+    }
+  } else {
+    playingMap[id] = false;
+  }
+}
+function pauseAllExcept(id?: string) {
+  for (const [key, wrap] of Object.entries(audioElMap)) {
+    const el = wrap?.value;
+    if (!el) continue;
+    if (!id || key !== id) {
+      try { el.pause(); } catch {}
+    }
+  }
+}
+async function togglePlay(id: string, src: string) {
+  const el = audioElMap[id]?.value;
+  if (!el) return;
+  if (el.paused) {
+    pauseAllExcept(id);
+    try { if (el.src !== src) el.src = src; } catch {}
+    try { await el.play(); } catch (e) { /* ignore */ }
+  } else {
+    try { el.pause(); } catch {}
+  }
 }
 import MarkdownIt from 'markdown-it';
 
@@ -715,10 +748,22 @@ onUnmounted(() => {
                     <h3 v-if="entry.title" class="font-semibold text-lg mb-2 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
                     <Spreadsheet :data="entry.content" />
                   </div>
-                  <div v-else-if="entry.card_type === 'audio'" class="pr-20 pl-8">
-                    <h3 v-if="entry.title" class="font-semibold text-lg mb-2 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
-                    <AudioWaveform :src="entry.content" :audio-el="audioElMap[entry.id]" :height="48" />
-                    <audio :src="entry.content" controls class="w-full mt-2" :ref="(el) => setAudioEl(String(entry.id), el as HTMLAudioElement)"></audio>
+                  <div v-else-if="entry.card_type === 'audio'" class="px-8">
+                    <h3 v-if="entry.title" class="font-semibold text-lg mb-3 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
+                    <div class="flex items-center justify-center w-full py-6">
+                      <button
+                        type="button"
+                        class="inline-flex items-center justify-center size-14 rounded-full bg-zinc-900 text-white shadow hover:scale-105 active:scale-95 transition-transform"
+                        @click.stop="togglePlay(String(entry.id), entry.content)"
+                        @mousedown.stop
+                        @touchstart.stop
+                        :aria-label="(playingMap[String(entry.id)] ? 'Pause' : 'Play') + ' audio'"
+                      >
+                        <Pause v-if="playingMap[String(entry.id)]" class="size-7" />
+                        <Play v-else class="size-7" />
+                      </button>
+                      <audio :src="entry.content" class="hidden" :ref="(el) => setAudioEl(String(entry.id), el as HTMLAudioElement)"></audio>
+                    </div>
                   </div>
                   <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
                 </div>
@@ -789,10 +834,22 @@ onUnmounted(() => {
                   <h3 v-if="entry.title" class="font-semibold text-lg mb-2 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
                   <Spreadsheet :data="entry.content" />
                 </div>
-                <div v-else-if="entry.card_type === 'audio'" class="pr-20 pl-8">
-                  <h3 v-if="entry.title" class="font-semibold text-lg mb-2 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
-                  <AudioWaveform :src="entry.content" :audio-el="audioElMap[entry.id]" :height="48" />
-                  <audio :src="entry.content" controls class="w-full mt-2" :ref="(el) => setAudioEl(String(entry.id), el as HTMLAudioElement)"></audio>
+                <div v-else-if="entry.card_type === 'audio'" class="px-8">
+                  <h3 v-if="entry.title" class="font-semibold text-lg mb-3 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
+                  <div class="flex items-center justify-center w-full py-6">
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center size-14 rounded-full bg-zinc-900 text-white shadow hover:scale-105 active:scale-95 transition-transform"
+                      @click.stop="togglePlay(String(entry.id), entry.content)"
+                      @mousedown.stop
+                      @touchstart.stop
+                      :aria-label="(playingMap[String(entry.id)] ? 'Pause' : 'Play') + ' audio'"
+                    >
+                      <Pause v-if="playingMap[String(entry.id)]" class="size-7" />
+                      <Play v-else class="size-7" />
+                    </button>
+                    <audio :src="entry.content" class="hidden" :ref="(el) => setAudioEl(String(entry.id), el as HTMLAudioElement)"></audio>
+                  </div>
                 </div>
                 <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
               </div>
