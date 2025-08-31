@@ -1,8 +1,9 @@
 <?php
 
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\App;
 
-if (app()->environment(['testing', 'local'])) {
+if (App::environment(['testing', 'local'])) {
     
     \Illuminate\Support\Facades\URL::forceScheme('https');
     // Build a MongoDB DSN that is safe for standalone servers (no replica set)
