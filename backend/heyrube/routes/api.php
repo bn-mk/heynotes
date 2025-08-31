@@ -13,12 +13,12 @@ Route::get('/user', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function() {
     Route::get('journals', [JournalController::class, 'index']);
-    Route::get('tags', [TagController::class, 'index']);
-    Route::post('tags', [TagController::class, 'store']);
     Route::post('journals', [JournalController::class, 'store']);
     Route::get('journals/{journal}', [JournalController::class, 'show']);
     Route::put('journals/{journal}', [JournalController::class, 'update']);
     Route::delete('journals/{journal}', [JournalController::class, 'destroy']);
+
+    // TODO: Move entry routes to EntryController
     Route::get('journals/{journal}/entries', [JournalController::class, 'entries']);
     Route::post('journals/{journal}/entries', [JournalController::class, 'storeEntry']);
     Route::post('journals/{journal}/entries/reorder', [JournalController::class, 'reorderEntries']);
@@ -26,7 +26,11 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::put('journals/{journal}/entries/{entry}', [JournalController::class, 'updateEntry']);
     Route::post('journals/{journal}/entries/{entry}/pin', [JournalController::class, 'pinEntry']);
     
-    // Trash routes (moved to TrashController)
+    // Tag routes
+    Route::get('tags', [TagController::class, 'index']);
+    Route::post('tags', [TagController::class, 'store']);
+   
+    // Trash routes
     Route::get('trash/journals', [TrashController::class, 'journals']);
     Route::post('trash/journals/{id}/restore', [TrashController::class, 'restoreJournal']);
     Route::delete('trash/journals/{id}', [TrashController::class, 'forceDestroyJournal']);

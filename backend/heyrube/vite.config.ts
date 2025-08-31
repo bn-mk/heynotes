@@ -31,5 +31,16 @@ export default defineConfig({
         globals: true,
         setupFiles: 'resources/js/tests/setup.ts',
         include: ['resources/js/**/*.spec.ts'],
+        coverage: {
+            reporter: ['text', 'lcov', 'html'],
+            include: ['resources/js/**/*.{ts,vue}'],
+            exclude: [
+                'resources/js/tests/**',
+                'resources/js/**/__tests__/**',
+                'resources/js/**/__mocks__/**',
+                'resources/js/app.ts',
+                'resources/js/ssr.ts',
+            ],
+        },
     },
 });
