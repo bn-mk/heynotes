@@ -21,7 +21,7 @@ class JournalEntryService
             'mood' => $data['mood'] ?? null,
             'user_id' => $journal->user_id,
         ];
-        if (($data['card_type'] ?? 'text') === 'text' || $data['card_type'] === 'spreadsheet') {
+        if (in_array($data['card_type'] ?? 'text', ['text', 'spreadsheet', 'audio'], true)) {
             $entryData['content'] = $data['content'] ?? null;
         } elseif (($data['card_type'] ?? '') === 'checkbox') {
             $entryData['checkbox_items'] = $data['checkbox_items'] ?? [];
@@ -54,7 +54,7 @@ class JournalEntryService
             $updateData['title'] = $data['title'];
         }
         $cardType = $data['card_type'] ?? $entry->card_type ?? 'text';
-        if ($cardType === 'text' || $cardType === 'spreadsheet') {
+        if (in_array($cardType, ['text', 'spreadsheet', 'audio'], true)) {
             $updateData['content'] = $data['content'] ?? null;
             $updateData['checkbox_items'] = null;
         } elseif ($cardType === 'checkbox') {

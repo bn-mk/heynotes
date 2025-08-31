@@ -15,9 +15,9 @@ class UpdateEntryRequest extends FormRequest
     {
         return [
             'title' => 'nullable|string|max:255',
-            'content' => 'required_if:card_type,text|nullable|string',
+            'content' => 'required_if:card_type,text,audio|nullable|string',
             'journal_id' => 'sometimes|string',
-            'card_type' => 'sometimes|in:text,checkbox,spreadsheet',
+            'card_type' => 'sometimes|in:text,checkbox,spreadsheet,audio',
             'checkbox_items' => 'required_if:card_type,checkbox|nullable|array',
             'checkbox_items.*.text' => 'required_with:checkbox_items|string',
             'checkbox_items.*.checked' => 'required_with:checkbox_items|boolean',

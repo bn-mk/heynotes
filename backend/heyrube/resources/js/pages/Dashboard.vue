@@ -12,6 +12,7 @@ import CreateEntryForm from '@/components/CreateEntryForm.vue';
 import Spreadsheet from '@/components/Spreadsheet.vue';
 import DeleteEntryButton from '@/components/DeleteEntryButton.vue';
 import LinkEntryButton from '@/components/LinkEntryButton.vue';
+import AudioWaveform from '@/components/AudioWaveform.vue';
 
 const props = defineProps<{
   journals: JournalListType[],
@@ -708,6 +709,11 @@ onUnmounted(() => {
                     <h3 v-if="entry.title" class="font-semibold text-lg mb-2 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
                     <Spreadsheet :data="entry.content" />
                   </div>
+                  <div v-else-if="entry.card_type === 'audio'" class="pr-20 pl-8">
+                    <h3 v-if="entry.title" class="font-semibold text-lg mb-2 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
+                    <AudioWaveform :src="entry.content" :audio-el="entry._audioEl" :height="48" />
+                    <audio :src="entry.content" controls class="w-full mt-2" :ref="(el) => { if (el) (entry as any)._audioEl = el as HTMLAudioElement }"></audio>
+                  </div>
                   <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
                 </div>
               </Card>
@@ -776,6 +782,11 @@ onUnmounted(() => {
                 <div v-else-if="entry.card_type === 'spreadsheet'" class="pr-20 pl-8">
                   <h3 v-if="entry.title" class="font-semibold text-lg mb-2 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
                   <Spreadsheet :data="entry.content" />
+                </div>
+                <div v-else-if="entry.card_type === 'audio'" class="pr-20 pl-8">
+                  <h3 v-if="entry.title" class="font-semibold text-lg mb-2 text-gray-900 dark:text-gray-100">{{ entry.title }}</h3>
+                  <AudioWaveform :src="entry.content" :audio-el="entry._audioEl" :height="48" />
+                  <audio :src="entry.content" controls class="w-full mt-2" :ref="(el) => { if (el) (entry as any)._audioEl = el as HTMLAudioElement }"></audio>
                 </div>
                 <div class="mt-auto text-xs text-gray-400">{{ new Date(entry.created_at).toLocaleString() }}</div>
               </div>

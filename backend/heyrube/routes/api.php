@@ -6,6 +6,7 @@ use App\Http\Controllers\JournalController;
 use App\Http\Controllers\LinkController;
 use App\Http\Controllers\TagController;
 use App\Http\Controllers\TrashController;
+use App\Http\Controllers\MediaController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -47,4 +48,7 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::delete('links', [LinkController::class, 'destroy']);
     Route::get('graph', [LinkController::class, 'graph']);
     Route::get('search', [LinkController::class, 'search']);
+
+    // Media uploads
+    Route::post('media/audio', [MediaController::class, 'uploadAudio']);
 });

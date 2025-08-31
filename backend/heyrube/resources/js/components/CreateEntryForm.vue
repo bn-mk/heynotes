@@ -6,6 +6,7 @@ import { Plus, X, Check, Pin } from 'lucide-vue-next';
 import jspreadsheet from 'jspreadsheet-ce';
 import LinkEntryButton from '@/components/LinkEntryButton.vue';
 import DeleteEntryButton from '@/components/DeleteEntryButton.vue';
+import AudioWaveform from '@/components/AudioWaveform.vue';
 
 // PROPS & STORE
 const props = defineProps({
@@ -23,9 +24,23 @@ const entryContent = ref('');
 const entryTitle = ref('');
 const newJournalTitle = ref('');
 const errors = ref<{ content?: string, title?: string }>({});
-const cardType = ref<'text' | 'checkbox' | 'spreadsheet'>('text');
+const cardType = ref<'text' | 'checkbox' | 'spreadsheet' | 'audio'>('text');
 const checkboxItems = ref<Array<{ text: string; checked: boolean }>>([]);
 const spreadsheetData = ref('');
+// Audio state
+const audioRecorder = ref<any | null>(null);
+const audioStream = ref<MediaStream | null>(null);
+const audioChunks = ref<Blob[]>([]);
+const audioBlob = ref<Blob | null>(null);
+const audioUrl = ref<string>('');
+const audioUploadedUrl = ref<string>('');
+const isRecordingAudio = ref(false);
+const audioError = ref<string>('');
+const audioSeconds = ref<number>(0);
+let audioTimerHandle: number | null = null;
+const audioPlayerRef = ref<HTMLAudioElement | null>(null);
+const audioMime = ref<string>('');
+const audioExt = ref<string>('webm');
 const newCheckboxItem = ref('');
 const selectedMood = ref<string>('');
 const pinAfterSave = ref(false);
@@ -107,13 +122,132 @@ watch(cardType, async (newType, oldType) => {
   }
 });
 
+async function startRecording() {
+  try {
+    audioError.value = '';
+    audioSeconds.value = 0;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      audioError.value = 'Audio recording not supported in this browser.';
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioStream.value = stream;
+
+    // Pick the best supported MIME type
+    const MR: any = (window as any).MediaRecorder;
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+      'audio/mp4',
+      'audio/mpeg',
+      'audio/wav',
+    ];
+    let chosen: string | undefined;
+    if (MR && typeof MR.isTypeSupported === 'function') {
+      for (const c of candidates) {
+        try { if (MR.isTypeSupported(c)) { chosen = c; break; } } catch {}
+      }
+    }
+    audioMime.value = chosen || 'audio/webm';
+    if (audioMime.value.includes('ogg')) audioExt.value = 'ogg';
+    else if (audioMime.value.includes('mp4')) audioExt.value = 'm4a';
+    else if (audioMime.value.includes('mpeg')) audioExt.value = 'mp3';
+    else if (audioMime.value.includes('wav')) audioExt.value = 'wav';
+    else audioExt.value = 'webm';
+
+    const rec: any = chosen ? new MR(stream, { mimeType: chosen }) : new MR(stream);
+    audioRecorder.value = rec;
+    audioChunks.value = [];
+    rec.ondataavailable = (e: any) => {
+      if (e.data && e.data.size > 0) audioChunks.value.push(e.data);
+    };
+    rec.onstop = () => {
+      const type = audioMime.value || 'audio/webm';
+      audioBlob.value = new Blob(audioChunks.value, { type });
+      if (audioUrl.value) {
+        try { URL.revokeObjectURL(audioUrl.value); } catch {}
+      }
+      audioUrl.value = URL.createObjectURL(audioBlob.value);
+      isRecordingAudio.value = false;
+      if (audioTimerHandle) { window.clearInterval(audioTimerHandle); audioTimerHandle = null; }
+    };
+    rec.onerror = (ev: any) => { console.error('MediaRecorder error', ev?.error || ev); };
+    rec.start();
+    isRecordingAudio.value = true;
+    if (audioTimerHandle) { window.clearInterval(audioTimerHandle); }
+    audioTimerHandle = window.setInterval(() => { audioSeconds.value += 1; }, 1000);
+  } catch (e: any) {
+    console.error('startRecording failed', e);
+    audioError.value = 'Microphone permission denied or unavailable.';
+    isRecordingAudio.value = false;
+  }
+}
+
+function stopRecording() {
+  try {
+    audioRecorder.value?.stop();
+    audioStream.value?.getTracks().forEach(t => t.stop());
+    audioStream.value = null;
+  } catch {}
+}
+
+function discardAudio() {
+  try { if (audioUrl.value) URL.revokeObjectURL(audioUrl.value); } catch {}
+  audioUrl.value = '';
+  audioBlob.value = null;
+  audioUploadedUrl.value = '';
+  audioSeconds.value = 0;
+}
+
+async function uploadAudio(): Promise<boolean> {
+  if (!audioBlob.value) return false;
+  const xsrf = getCookie('XSRF-TOKEN') ?? '';
+  const fd = new FormData();
+  const filename = `recording.${audioExt.value || 'webm'}`;
+  fd.append('audio', audioBlob.value, filename);
+  try {
+    const res = await fetch('/api/media/audio', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-XSRF-TOKEN': xsrf },
+      body: fd,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      console.error('Audio upload failed', res.status, text);
+      audioError.value = 'Audio upload failed.';
+      return false;
+    }
+    const data = await res.json();
+    audioUploadedUrl.value = data.url;
+    return true;
+  } catch (e) {
+    audioError.value = 'Audio upload failed.';
+    return false;
+  }
+}
+
 
 // When submitting, get data from spreadsheet
 async function beforeSubmit() {
   if (cardType.value === 'spreadsheet' && spreadsheetInstance) {
     spreadsheetData.value = JSON.stringify(spreadsheetInstance.getData());
   }
-  submit();
+  if (cardType.value === 'audio') {
+    if (isRecordingAudio.value) {
+      // ensure we stop recording before upload
+      stopRecording();
+      // wait a tick for onstop to fire and assemble blob
+      await new Promise(r => setTimeout(r, 50));
+    }
+    if (audioBlob.value && !audioUploadedUrl.value) {
+      const ok = await uploadAudio();
+      if (!ok) return; // abort submit on failure
+    }
+  }
+  await submit();
 }
 const moods = [
   { emoji: '😊', label: 'Happy', value: 'happy' },
@@ -147,6 +281,9 @@ function defaultPrefill() {
       checkboxItems.value = [...props.entryToEdit.checkbox_items];
     } else if (props.entryToEdit.card_type === 'spreadsheet') {
       spreadsheetData.value = props.entryToEdit.content || '';
+    } else if (props.entryToEdit.card_type === 'audio') {
+      audioUploadedUrl.value = props.entryToEdit.content || '';
+      audioUrl.value = audioUploadedUrl.value;
     } else {
       entryContent.value = props.entryToEdit.content || '';
     }
@@ -222,6 +359,12 @@ onUnmounted(() => {
     sheetResizeObserver = null;
   }
   window.removeEventListener('resize', updateSpreadsheetColWidths);
+  try {
+    audioRecorder.value?.stop?.();
+  } catch {}
+  try {
+    audioStream.value?.getTracks().forEach(t => t.stop());
+  } catch {}
 });
 
 // HELPERS
@@ -311,12 +454,14 @@ const buttonLabel = computed(() => {
 });
 
 function hasContent(): boolean {
-if (cardType.value === 'text') {
+  if (cardType.value === 'text') {
     return entryContent.value.trim().length > 0;
   } else if (cardType.value === 'checkbox') {
     return checkboxItems.value.length > 0;
   } else if (cardType.value === 'spreadsheet') {
     return spreadsheetData.value.trim().length > 0;
+  } else if (cardType.value === 'audio') {
+    return !!audioUploadedUrl.value || !!audioBlob.value;
   }
   return false;
 }
@@ -424,6 +569,8 @@ if (cardType.value === 'text') {
         entryPayload.checkbox_items = checkboxItems.value;
       } else if (cardType.value === 'spreadsheet') {
         entryPayload.content = spreadsheetData.value;
+      } else if (cardType.value === 'audio') {
+        entryPayload.content = audioUploadedUrl.value || '';
       }
       
       // Update journal tags if changed (for existing journals)
@@ -466,6 +613,8 @@ if (cardType.value === 'text') {
           createPayload.checkbox_items = checkboxItems.value;
         } else if (cardType.value === 'spreadsheet') {
           createPayload.content = spreadsheetData.value;
+        } else if (cardType.value === 'audio') {
+          createPayload.content = audioUploadedUrl.value || '';
         }
         
         const response = await fetch(`/api/journals/${journalId}/entries`, {
@@ -616,6 +765,18 @@ function toggleCheckbox(index: number) {
       >
         Spreadsheet
       </button>
+      <button
+        type="button"
+        @click="cardType = 'audio'"
+        :class="[
+          'px-4 py-2 rounded transition-colors',
+          cardType === 'audio'
+            ? 'bg-blue-600 text-white'
+            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+        ]"
+      >
+        Audio Note
+      </button>
     </div>
 
     <!-- Entry Title -->
@@ -761,6 +922,29 @@ function toggleCheckbox(index: number) {
         <div v-if="checkboxItems.length === 0" class="text-gray-500 text-center py-4">
           No checklist items yet. Add one above!
         </div>
+      </div>
+    </div>
+
+    <!-- Audio Entry Content -->
+    <div v-else-if="cardType === 'audio'">
+      <div class="mb-3">
+        <div v-if="!audioUrl && !audioUploadedUrl" class="flex flex-col gap-2">
+          <AudioWaveform v-if="isRecordingAudio && audioStream" :stream="audioStream" :height="64" />
+          <div class="flex items-center gap-2">
+            <button type="button" @click="startRecording" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">Start Recording</button>
+            <span v-if="isRecordingAudio" class="text-sm text-red-500">Recording... {{ audioSeconds }}s</span>
+            <button v-if="isRecordingAudio" type="button" @click="stopRecording" class="px-3 py-1 border rounded">Stop</button>
+          </div>
+        </div>
+        <div v-else>
+          <AudioWaveform :src="audioUrl || audioUploadedUrl" :audio-el="audioPlayerRef" :height="64" />
+          <audio :src="audioUrl || audioUploadedUrl" controls class="w-full mt-2" ref="audioPlayerRef"></audio>
+          <div class="mt-2 flex gap-2">
+            <button type="button" @click="discardAudio" class="px-3 py-1 border rounded">Discard</button>
+            <button type="button" @click="startRecording" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">Re-record</button>
+          </div>
+        </div>
+        <div v-if="audioError" class="text-red-500 text-sm mt-1">{{ audioError }}</div>
       </div>
     </div>
     
