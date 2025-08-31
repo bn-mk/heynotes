@@ -11,7 +11,8 @@ class MediaController extends Controller
     public function uploadAudio(Request $request)
     {
         $request->validate([
-            'audio' => 'required|file|mimetypes:audio/webm,audio/ogg,audio/mpeg,audio/wav,audio/mp4|max:51200', // up to 50MB
+            // Validate by extension to tolerate mime parameters like 'audio/webm;codecs=opus'
+            'audio' => 'required|file|mimes:webm,ogg,mp3,wav,m4a|max:51200', // up to 50MB
         ]);
 
         $file = $request->file('audio');

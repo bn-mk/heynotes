@@ -16,7 +16,7 @@ const canvasRef = ref<HTMLCanvasElement | null>(null);
 let rafId: number | null = null;
 let audioCtx: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
-let sourceNode: (MediaStreamAudioSourceNode | MediaElementAudioSourceNode | null) = null;
+let sourceNode: MediaStreamAudioSourceNode | null = null;
 let timeData: Uint8Array | null = null;
 let resizeObserver: ResizeObserver | null = null;
 
@@ -251,25 +251,6 @@ async function renderStaticWave() {
   attachProgressUpdates();
 }
 
-async function attachMediaElementAnalysis() {
-  const el = getAudioElement();
-  if (!el) return;
-  if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-  try { if (audioCtx.state === 'suspended') await audioCtx.resume(); } catch {}
-  stopLive();
-  try {
-    // Create analyser from media element without altering audible output
-    sourceNode = (audioCtx as any).createMediaElementSource(el);
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
-    (sourceNode as any).connect(analyser);
-    // Do not connect analyser to destination to avoid duplicating audio
-    timeData = new Uint8Array(analyser.fftSize);
-    drawLive();
-  } catch (e) {
-    // If creating media element source fails (cross-origin), ignore
-  }
-}
 
 onMounted(async () => {
   if (props.stream) {
@@ -278,7 +259,6 @@ onMounted(async () => {
   } else if (props.src) {
     await nextTick();
     await renderStaticWave();
-    await attachMediaElementAnalysis();
   }
   if ('ResizeObserver' in window && canvasRef.value) {
     resizeObserver = new ResizeObserver(() => {
@@ -314,11 +294,6 @@ watch(() => props.src, async (s) => {
   if (s) {
     decodedBuffer = null;
     await renderStaticWave();
-  }
-});
-watch(() => props.audioEl, async (el) => {
-  if (el) {
-    await attachMediaElementAnalysis();
   }
 });
 </script>

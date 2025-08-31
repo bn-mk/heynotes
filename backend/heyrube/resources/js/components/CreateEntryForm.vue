@@ -41,6 +41,23 @@ let audioTimerHandle: number | null = null;
 const audioPlayerRef = ref<HTMLAudioElement | null>(null);
 const audioMime = ref<string>('');
 const audioExt = ref<string>('webm');
+const audioPlayerType = computed(() => {
+  if (audioMime.value) return audioMime.value;
+  const url = audioUrl.value || audioUploadedUrl.value || '';
+  if (/\.ogg(\?|$)/i.test(url)) return 'audio/ogg';
+  if (/\.(mp3)(\?|$)/i.test(url)) return 'audio/mpeg';
+  if (/\.(m4a|mp4)(\?|$)/i.test(url)) return 'audio/mp4';
+  if (/\.wav(\?|$)/i.test(url)) return 'audio/wav';
+  return 'audio/webm';
+});
+// Mic selection and test meter
+const micDevices = ref<Array<{ deviceId: string; label: string }>>([]);
+const selectedMicId = ref<string>('');
+const micTestStream = ref<MediaStream | null>(null);
+let meterAudioCtx: AudioContext | null = null;
+let meterAnalyser: AnalyserNode | null = null;
+let meterTimer: number | null = null;
+const meterLevel = ref<number>(0);
 const newCheckboxItem = ref('');
 const selectedMood = ref<string>('');
 const pinAfterSave = ref(false);
@@ -65,6 +82,11 @@ watch(cardType, async (newType, oldType) => {
   if (oldType === 'spreadsheet' && spreadsheetInstance) {
     spreadsheetInstance.destroy();
     spreadsheetInstance = null;
+  }
+
+  if (newType === 'audio' && micDevices.value.length === 0) {
+    // Lazy-load mic devices after permission
+    try { await loadMicDevices(); } catch {}
   }
 
   if (newType === 'spreadsheet') {
@@ -130,10 +152,13 @@ async function startRecording() {
       audioError.value = 'Audio recording not supported in this browser.';
       return;
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Stop mic test to free device if running
+    stopMicTest();
+    const constraints: any = { audio: selectedMicId.value ? { deviceId: { exact: selectedMicId.value }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } : true };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     audioStream.value = stream;
 
-    // Pick the best supported MIME type
+    // Pick the best supported MIME type; gracefully fallback if constructor rejects
     const MR: any = (window as any).MediaRecorder;
     const candidates = [
       'audio/webm;codecs=opus',
@@ -150,6 +175,7 @@ async function startRecording() {
         try { if (MR.isTypeSupported(c)) { chosen = c; break; } } catch {}
       }
     }
+    // Map extension for the chosen type
     audioMime.value = chosen || 'audio/webm';
     if (audioMime.value.includes('ogg')) audioExt.value = 'ogg';
     else if (audioMime.value.includes('mp4')) audioExt.value = 'm4a';
@@ -157,14 +183,26 @@ async function startRecording() {
     else if (audioMime.value.includes('wav')) audioExt.value = 'wav';
     else audioExt.value = 'webm';
 
-    const rec: any = chosen ? new MR(stream, { mimeType: chosen }) : new MR(stream);
+    let rec: any;
+    try {
+      rec = chosen ? new MR(stream, { mimeType: chosen }) : new MR(stream);
+    } catch (err) {
+      // Fallback without mimeType if constructor rejects
+      try { rec = new MR(stream); chosen = rec.mimeType || undefined; } catch (err2) {
+        console.error('MediaRecorder not supported for this stream', err2);
+        audioError.value = 'Recording is not supported in this browser.';
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+        return;
+      }
+    }
+
     audioRecorder.value = rec;
     audioChunks.value = [];
     rec.ondataavailable = (e: any) => {
       if (e.data && e.data.size > 0) audioChunks.value.push(e.data);
     };
     rec.onstop = () => {
-      const type = audioMime.value || 'audio/webm';
+      const type = (rec && rec.mimeType) || audioMime.value || 'audio/webm';
       audioBlob.value = new Blob(audioChunks.value, { type });
       if (audioUrl.value) {
         try { URL.revokeObjectURL(audioUrl.value); } catch {}
@@ -174,23 +212,40 @@ async function startRecording() {
       if (audioTimerHandle) { window.clearInterval(audioTimerHandle); audioTimerHandle = null; }
     };
     rec.onerror = (ev: any) => { console.error('MediaRecorder error', ev?.error || ev); };
-    rec.start();
+    // Use timeslice so ondataavailable fires during recording across browsers
+    rec.start(100);
     isRecordingAudio.value = true;
     if (audioTimerHandle) { window.clearInterval(audioTimerHandle); }
     audioTimerHandle = window.setInterval(() => { audioSeconds.value += 1; }, 1000);
   } catch (e: any) {
     console.error('startRecording failed', e);
-    audioError.value = 'Microphone permission denied or unavailable.';
+    audioError.value = e?.message || 'Microphone permission denied or unavailable.';
     isRecordingAudio.value = false;
   }
 }
 
 function stopRecording() {
   try {
+    // Request final data chunk before stopping when supported
+    try { (audioRecorder.value as any)?.requestData?.(); } catch {}
     audioRecorder.value?.stop();
     audioStream.value?.getTracks().forEach(t => t.stop());
     audioStream.value = null;
   } catch {}
+}
+
+async function stopRecordingAndWait(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    try {
+      const rec: any = audioRecorder.value;
+      if (!rec) { resolve(); return; }
+      const onStopped = () => { try { rec.removeEventListener('stop', onStopped); } catch {} resolve(); };
+      try { rec.addEventListener('stop', onStopped, { once: true } as any); } catch { /* older browsers */ }
+      try { rec.requestData?.(); } catch {}
+      try { rec.stop(); } catch {}
+      try { audioStream.value?.getTracks().forEach(t => t.stop()); audioStream.value = null; } catch {}
+    } catch { resolve(); }
+  });
 }
 
 function discardAudio() {
@@ -199,6 +254,61 @@ function discardAudio() {
   audioBlob.value = null;
   audioUploadedUrl.value = '';
   audioSeconds.value = 0;
+}
+
+async function loadMicDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  try {
+    // Request permission to reveal device labels
+    const temp = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const list = await navigator.mediaDevices.enumerateDevices();
+    micDevices.value = list.filter(d => d.kind === 'audioinput').map(d => ({ deviceId: d.deviceId, label: d.label || 'Microphone' }));
+    if (!selectedMicId.value && micDevices.value.length > 0) {
+      selectedMicId.value = micDevices.value[0].deviceId;
+    }
+    temp.getTracks().forEach(t => t.stop());
+  } catch (e) {
+    audioError.value = 'Unable to access microphones.';
+  }
+}
+
+async function startMicTest() {
+  try {
+    stopMicTest();
+    const constraints: any = { audio: selectedMicId.value ? { deviceId: { exact: selectedMicId.value }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } : true };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    micTestStream.value = stream;
+    meterAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    await meterAudioCtx.resume();
+    const source = meterAudioCtx.createMediaStreamSource(stream);
+    meterAnalyser = meterAudioCtx.createAnalyser();
+    meterAnalyser.fftSize = 2048;
+    source.connect(meterAnalyser);
+    const data = new Uint8Array(meterAnalyser.fftSize);
+    meterTimer = window.setInterval(() => {
+      if (!meterAnalyser) return;
+      meterAnalyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      meterLevel.value = Math.min(1, rms * 2.5);
+    }, 100) as unknown as number;
+  } catch (e) {
+    audioError.value = 'Mic test failed. Check device permissions.';
+  }
+}
+
+function stopMicTest() {
+  try {
+    if (meterTimer) { window.clearInterval(meterTimer); meterTimer = null; }
+    if (meterAnalyser) { try { meterAnalyser.disconnect(); } catch {} meterAnalyser = null; }
+    if (meterAudioCtx) { try { meterAudioCtx.close(); } catch {} meterAudioCtx = null; }
+    if (micTestStream.value) { micTestStream.value.getTracks().forEach(t => t.stop()); micTestStream.value = null; }
+    meterLevel.value = 0;
+  } catch {}
 }
 
 async function uploadAudio(): Promise<boolean> {
@@ -211,7 +321,10 @@ async function uploadAudio(): Promise<boolean> {
     const res = await fetch('/api/media/audio', {
       method: 'POST',
       credentials: 'include',
-      headers: { 'X-XSRF-TOKEN': xsrf },
+      headers: {
+        'X-XSRF-TOKEN': xsrf,
+        'Accept': 'application/json',
+      },
       body: fd,
     });
     if (!res.ok) {
@@ -237,10 +350,8 @@ async function beforeSubmit() {
   }
   if (cardType.value === 'audio') {
     if (isRecordingAudio.value) {
-      // ensure we stop recording before upload
-      stopRecording();
-      // wait a tick for onstop to fire and assemble blob
-      await new Promise(r => setTimeout(r, 50));
+      // ensure we stop recording and wait for final data chunk
+      await stopRecordingAndWait();
     }
     if (audioBlob.value && !audioUploadedUrl.value) {
       const ok = await uploadAudio();
@@ -365,6 +476,7 @@ onUnmounted(() => {
   try {
     audioStream.value?.getTracks().forEach(t => t.stop());
   } catch {}
+  stopMicTest();
 });
 
 // HELPERS
@@ -927,7 +1039,21 @@ function toggleCheckbox(index: number) {
 
     <!-- Audio Entry Content -->
     <div v-else-if="cardType === 'audio'">
-      <div class="mb-3">
+      <div class="mb-3 flex flex-col gap-2">
+        <!-- Mic selection and test -->
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="text-sm">Microphone:</label>
+          <select v-model="selectedMicId" class="border rounded px-2 py-1 min-w-48">
+            <option v-for="d in micDevices" :key="d.deviceId" :value="d.deviceId">{{ d.label || 'Microphone' }}</option>
+          </select>
+          <button type="button" class="px-2 py-1 border rounded" @click="loadMicDevices">Refresh</button>
+          <button v-if="!micTestStream" type="button" class="px-2 py-1 border rounded" @click="startMicTest">Test mic</button>
+          <button v-else type="button" class="px-2 py-1 border rounded" @click="stopMicTest">Stop test</button>
+          <div class="flex-1 h-2 bg-gray-300 dark:bg-gray-700 rounded overflow-hidden">
+            <div class="h-2 bg-green-500 transition-all" :style="{ width: Math.round(meterLevel * 100) + '%' }"></div>
+          </div>
+        </div>
+
         <div v-if="!audioUrl && !audioUploadedUrl" class="flex flex-col gap-2">
           <AudioWaveform v-if="isRecordingAudio && audioStream" :stream="audioStream" :height="64" />
           <div class="flex items-center gap-2">
@@ -937,8 +1063,10 @@ function toggleCheckbox(index: number) {
           </div>
         </div>
         <div v-else>
-          <AudioWaveform :src="audioUrl || audioUploadedUrl" :audio-el="audioPlayerRef" :height="64" />
-          <audio :src="audioUrl || audioUploadedUrl" controls class="w-full mt-2" ref="audioPlayerRef"></audio>
+          <AudioWaveform :src="audioUrl || audioUploadedUrl" :height="64" />
+          <audio controls class="w-full mt-2" ref="audioPlayerRef">
+            <source :src="audioUrl || audioUploadedUrl" :type="audioPlayerType" />
+          </audio>
           <div class="mt-2 flex gap-2">
             <button type="button" @click="discardAudio" class="px-3 py-1 border rounded">Discard</button>
             <button type="button" @click="startRecording" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">Re-record</button>
