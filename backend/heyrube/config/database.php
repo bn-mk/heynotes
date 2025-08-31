@@ -56,7 +56,7 @@ return [
             'options' => [
                 // Ensure compatibility with standalone Mongo (no replica set)
                 'retryWrites' => false,
-                'directConnection' => true,
+                'directConnection' => false,
             ],
         ],
 
