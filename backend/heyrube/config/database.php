@@ -2,13 +2,20 @@
 
 use Illuminate\Support\Str;
 
-// Build a MongoDB DSN that is safe for standalone servers (no replica set)
-$__mongoDsn = env('MONGODB_URI', 'mongodb://127.0.0.1:27017');
-if (!str_contains($__mongoDsn, 'retryWrites')) {
-    $__mongoDsn .= (str_contains($__mongoDsn, '?') ? '&' : '?') . 'retryWrites=false';
-}
-if (!str_contains($__mongoDsn, 'directConnection')) {
-    $__mongoDsn .= (str_contains($__mongoDsn, '?') ? '&' : '?') . 'directConnection=true';
+if (app()->environment(['testing', 'local'])) {
+    
+    \Illuminate\Support\Facades\URL::forceScheme('https');
+    // Build a MongoDB DSN that is safe for standalone servers (no replica set)
+    $__mongoDsn = env('MONGODB_URI', 'mongodb://127.0.0.1:27017');
+    if (!str_contains($__mongoDsn, 'retryWrites')) {
+        $__mongoDsn .= (str_contains($__mongoDsn, '?') ? '&' : '?') . 'retryWrites=false';
+    }
+    if (!str_contains($__mongoDsn, 'directConnection')) {
+        $__mongoDsn .= (str_contains($__mongoDsn, '?') ? '&' : '?') . 'directConnection=true';
+    }
+} else {
+    // Build a MongoDB DSN that is safe for standalone servers (no replica set)
+    $__mongoDsn = env('MONGODB_URI');
 }
 
 return [
@@ -42,7 +49,7 @@ return [
 
     'connections' => [
 
-'mongodb' => [
+        'mongodb' => [
             'driver' => 'mongodb',
             'dsn' => $__mongoDsn,
             'database' => env('MONGODB_DATABASE', ''),
