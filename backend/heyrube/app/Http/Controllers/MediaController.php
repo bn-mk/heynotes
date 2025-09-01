@@ -28,5 +28,26 @@ class MediaController extends Controller
             'size' => $file->getSize(),
         ], 201);
     }
+
+    public function uploadImage(Request $request)
+    {
+        $request->validate([
+            // Avoid the generic `image` rule to better control formats; include common image types
+            'image' => 'required|file|mimes:jpg,jpeg,png,webp,gif,avif,bmp|max:20480', // up to ~20MB
+        ]);
+
+        $file = $request->file('image');
+        $ext = $file->getClientOriginalExtension();
+        $name = Str::uuid()->toString() . ($ext ? ('.' . $ext) : '');
+        $path = $file->storeAs('images', $name, 'public');
+
+        $url = Storage::disk('public')->url($path);
+
+        return response()->json([
+            'url' => $url,
+            'mime' => $file->getClientMimeType(),
+            'size' => $file->getSize(),
+        ], 201);
+    }
 }
 

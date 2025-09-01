@@ -38,7 +38,8 @@ describe('CreateEntryForm errors', () => {
     await form.trigger('submit');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(wrapper.text()).toContain('Journal title is required.');
+    // Assert internal error state instead of UI text (input is inside dropdown UI)
+    expect(((wrapper.vm as any).errors)?.title).toBe('Journal title is required.');
     // Only fetchTags was called
     expect((global.fetch as any).mock.calls.length).toBe(1);
   });

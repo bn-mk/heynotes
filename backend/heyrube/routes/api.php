@@ -51,4 +51,5 @@ Route::middleware('auth:sanctum')->group(function() {
 
     // Media uploads
     Route::post('media/audio', [MediaController::class, 'uploadAudio']);
+    Route::post('media/image', [MediaController::class, 'uploadImage']);
 });

@@ -39,9 +39,9 @@ describe('CreateEntryForm (checkbox mode)', () => {
 
     const wrapper = mount(CreateEntryForm, { global: { stubs } });
 
-    // Switch to checkbox mode by clicking button
-    const btnChecklist = wrapper.findAll('button').find(b => b.text().includes('Checklist'))!;
-    await btnChecklist.trigger('click');
+    // Switch to checkbox mode programmatically (dropdown-based UI)
+    ;(wrapper.vm as any).cardType = 'checkbox';
+    await (wrapper.vm as any).$nextTick?.();
 
     // Type a checklist item and add it
     const input = wrapper.find('input[placeholder="Add a checklist item..."]');

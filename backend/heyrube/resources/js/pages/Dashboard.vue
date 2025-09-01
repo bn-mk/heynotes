@@ -61,6 +61,43 @@ async function togglePlay(id: string, src: string) {
 import MarkdownIt from 'markdown-it';
 
 const md = new MarkdownIt();
+// Enhance image rendering to support URL fragments like #w=300 or #w=50%
+(function enhanceMarkdownImages(mdInst: any) {
+  const orig = mdInst.renderer.rules.image;
+  mdInst.renderer.rules.image = function (tokens: any[], idx: number, options: any, env: any, self: any) {
+    const token = tokens[idx];
+    let src = token.attrGet('src') || '';
+    let width: string | null = null;
+    let height: string | null = null;
+    const hashIndex = src.indexOf('#');
+    if (hashIndex >= 0) {
+      const frag = src.slice(hashIndex + 1);
+      src = src.slice(0, hashIndex);
+      // parse w=...,h=... separated by & or ; or ,
+      const parts = frag.split(/[&;,]/);
+      for (const p of parts) {
+        const [k, v] = p.split('=');
+        if (k === 'w' && v) width = decodeURIComponent(v);
+        if (k === 'h' && v) height = decodeURIComponent(v);
+      }
+      token.attrSet('src', src);
+    }
+    const styles: string[] = ['max-width:100%', 'height:auto'];
+    if (width) {
+      let w = width.trim();
+      if (/^\d+$/.test(w)) w = w + 'px';
+      styles.push('width:' + w);
+    }
+    if (height) {
+      let h = height.trim();
+      if (/^\d+$/.test(h)) h = h + 'px';
+      styles.push('height:' + h);
+    }
+    const existing = token.attrGet('style');
+    token.attrSet('style', existing ? existing + '; ' + styles.join('; ') : styles.join('; '));
+    return (orig || self.renderToken).call(this, tokens, idx, options, env, self);
+  };
+})(md);
 
 function renderMarkdown(content: string) {
   return md.render(content || '');

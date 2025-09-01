@@ -7,6 +7,9 @@ import jspreadsheet from 'jspreadsheet-ce';
 import LinkEntryButton from '@/components/LinkEntryButton.vue';
 import DeleteEntryButton from '@/components/DeleteEntryButton.vue';
 import AudioWaveform from '@/components/AudioWaveform.vue';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { FileText, ListChecks, Table, AudioLines, Book, Tag as TagIcon, Smile, Image as ImageIcon, Loader2 } from 'lucide-vue-next';
 
 // PROPS & STORE
 const props = defineProps({
@@ -21,12 +24,21 @@ const journals = computed(() => journalStore.journals);
 const creatingNewJournal = ref(props.createNewJournal);
 const selectedJournalId = ref(props.createNewJournal ? 'new' : journalStore.selectedJournalId);
 const entryContent = ref('');
+const entryContentRef = ref<HTMLTextAreaElement | null>(null);
 const entryTitle = ref('');
 const newJournalTitle = ref('');
 const errors = ref<{ content?: string, title?: string }>({});
 const cardType = ref<'text' | 'checkbox' | 'spreadsheet' | 'audio'>('text');
 const checkboxItems = ref<Array<{ text: string; checked: boolean }>>([]);
 const spreadsheetData = ref('');
+// Media (image) upload state
+const imageUploading = ref(false);
+const imageError = ref('');
+const fileInputRef = ref<HTMLInputElement | null>(null);
+const imageWidth = ref<string>('auto'); // 'auto', '50%', '100%', '300px', '600px'
+// Layout state
+const showPreview = ref(false); // mobile preview toggle
+const newJournalInputRef = ref<HTMLInputElement | null>(null);
 // Audio state
 const audioRecorder = ref<any | null>(null);
 const audioStream = ref<MediaStream | null>(null);
@@ -60,7 +72,6 @@ let meterTimer: number | null = null;
 const meterLevel = ref<number>(0);
 const newCheckboxItem = ref('');
 const selectedMood = ref<string>('');
-const pinAfterSave = ref(false);
 // Tags state
 const selectedTags = ref<string[]>([]);
 const tagFilter = ref('');
@@ -379,9 +390,47 @@ const moods = [
   { emoji: '🥰', label: 'Loved', value: 'loved' },
   { emoji: '😐', label: 'Neutral', value: 'neutral' },
 ];
+const selectedMoodDef = computed(() => moods.find(m => m.value === selectedMood.value) || null);
 
 // MARKDOWN
 const md = new MarkdownIt();
+// Enhance image rendering to support URL fragments like #w=300 or #w=50%
+(function enhanceMarkdownImages(mdInst: any) {
+  const orig = mdInst.renderer.rules.image;
+  mdInst.renderer.rules.image = function (tokens: any[], idx: number, options: any, env: any, self: any) {
+    const token = tokens[idx];
+    let src = token.attrGet('src') || '';
+    let width: string | null = null;
+    let height: string | null = null;
+    const hashIndex = src.indexOf('#');
+    if (hashIndex >= 0) {
+      const frag = src.slice(hashIndex + 1);
+      src = src.slice(0, hashIndex);
+      // parse w=...,h=... separated by & or ; or ,
+      const parts = frag.split(/[&;,]/);
+      for (const p of parts) {
+        const [k, v] = p.split('=');
+        if (k === 'w' && v) width = decodeURIComponent(v);
+        if (k === 'h' && v) height = decodeURIComponent(v);
+      }
+      token.attrSet('src', src);
+    }
+    const styles: string[] = ['max-width:100%', 'height:auto'];
+    if (width) {
+      let w = width.trim();
+      if (/^\d+$/.test(w)) w = w + 'px';
+      styles.push('width:' + w);
+    }
+    if (height) {
+      let h = height.trim();
+      if (/^\d+$/.test(h)) h = h + 'px';
+      styles.push('height:' + h);
+    }
+    const existing = token.attrGet('style');
+    token.attrSet('style', existing ? existing + '; ' + styles.join('; ') : styles.join('; '));
+    return (orig || self.renderToken).call(this, tokens, idx, options, env, self);
+  };
+})(md);
 const renderedMarkdown = computed(() => md.render(entryContent.value || ''));
 
 // Prefill form for editing
@@ -489,6 +538,246 @@ function getCookie(name: string) {
   const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
   return match ? decodeURIComponent(match[3]) : null;
 }
+
+function insertAtCursor(text: string) {
+  const el = entryContentRef.value;
+  const insertion = text;
+  if (!el) {
+    // Fallback: append
+    entryContent.value += (entryContent.value && !entryContent.value.endsWith('\n') ? '\n' : '') + insertion + '\n';
+    nextTick(() => { try { entryContentRef.value?.focus(); } catch {} ; try { refreshImageBubble(); } catch {} });
+    return;
+  }
+  const start = el.selectionStart ?? entryContent.value.length;
+  const end = el.selectionEnd ?? entryContent.value.length;
+  const before = entryContent.value.slice(0, start);
+  const after = entryContent.value.slice(end);
+  entryContent.value = before + insertion + after;
+  nextTick(() => {
+    const pos = (before + insertion).length;
+    try { el.setSelectionRange(pos, pos); el.focus(); } catch {}
+    try { refreshImageBubble(); } catch {}
+  });
+}
+
+function autoResizeTextarea(el?: HTMLTextAreaElement | null) {
+  const target = el || entryContentRef.value;
+  if (!target) return;
+  try {
+    target.style.height = 'auto';
+    target.style.height = Math.max(160, target.scrollHeight) + 'px';
+  } catch {}
+}
+
+async function uploadAndInsertImages(files: FileList | File[]) {
+  const xsrf = getCookie('XSRF-TOKEN') ?? '';
+  imageError.value = '';
+  imageUploading.value = true;
+  try {
+    const arr = Array.from(files as any as File[]);
+    for (const file of arr) {
+      if (!file || !file.type?.startsWith('image/')) continue;
+      const fd = new FormData();
+      fd.append('image', file);
+      const res = await fetch('/api/media/image', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'X-XSRF-TOKEN': xsrf, 'Accept': 'application/json' },
+        body: fd,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('Image upload failed', res.status, text);
+        imageError.value = 'Image upload failed.';
+        continue;
+      }
+      const data = await res.json();
+      const url = data.url;
+      const baseName = (file.name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
+      const alt = baseName || 'image';
+      const widthSuffix = imageWidth.value && imageWidth.value !== 'auto' ? `#w=${encodeURIComponent(imageWidth.value)}` : '';
+      const finalUrl = `${url}${widthSuffix}`;
+      const md = `![${alt}](${finalUrl})`;
+      // Ensure separation by blank line if needed
+      const needsNewline = entryContent.value && !entryContent.value.endsWith('\n\n') ? '\n\n' : '';
+      insertAtCursor(needsNewline + md + '\n');
+    }
+    // Ensure bubble visibility reflects new caret position
+    await nextTick();
+    try { refreshImageBubble(); } catch {}
+  } catch (e) {
+    imageError.value = 'Image upload failed.';
+  } finally {
+    imageUploading.value = false;
+  }
+}
+
+function onClickPickImage(e?: Event) {
+  try {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+  } catch {}
+  try { fileInputRef.value?.click(); } catch {}
+}
+function onFilesSelected(e: Event) {
+  const input = e.target as HTMLInputElement;
+  if (input?.files?.length) {
+    uploadAndInsertImages(input.files);
+  }
+  // reset input so the same file can be reselected
+  if (input) input.value = '';
+}
+function onTextAreaDrop(e: DragEvent) {
+  e.preventDefault();
+  const files = e.dataTransfer?.files;
+  if (files && files.length) {
+    uploadAndInsertImages(files);
+  }
+}
+function onTextAreaDragOver(e: DragEvent) {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+}
+async function onTextAreaPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const imgs: File[] = [];
+  for (const item of Array.from(items)) {
+    if (item.kind === 'file') {
+      const f = item.getAsFile();
+      if (f && f.type.startsWith('image/')) imgs.push(f);
+    }
+  }
+  if (imgs.length) {
+    e.preventDefault();
+    await uploadAndInsertImages(imgs);
+  }
+}
+
+// Contextual image width bubble helpers
+const imageBubbleVisible = ref(false);
+const bubbleLineStart = ref(0);
+const bubbleLineEnd = ref(0);
+const bubbleCurrentWidth = ref<string | null>(null);
+
+function getCaretLineBounds(): { start: number, end: number, text: string } {
+  const el = entryContentRef.value as HTMLTextAreaElement | null;
+  const s = el?.selectionStart ?? 0;
+  const text = entryContent.value || '';
+  const start = Math.max(0, text.lastIndexOf('\n', Math.max(0, s - 1)) + 1);
+  let end = text.indexOf('\n', s);
+  if (end === -1) end = text.length;
+  return { start, end, text: text.slice(start, end) };
+}
+
+function findMarkdownImageInside(line: string): string | null {
+  const m = line.match(/!\[[^\]]*]\(([^)]*)\)/);
+  return m ? m[1] : null;
+}
+
+function splitInsideToUrlAndTitle(inside: string): { url: string, title: string } {
+  let url = inside.trim();
+  let title = '';
+  const quoteIdx = inside.indexOf('"');
+  if (quoteIdx >= 0) {
+    const before = inside.slice(0, quoteIdx).trimEnd();
+    url = before.trim();
+    title = inside.slice(quoteIdx).trim();
+  } else {
+    const spaceIdx = inside.indexOf(' ');
+    if (spaceIdx > 0) {
+      url = inside.slice(0, spaceIdx).trim();
+      title = inside.slice(spaceIdx).trim();
+    }
+  }
+  return { url, title };
+}
+
+function parseWidthFromUrl(url: string): string | null {
+  const hashIdx = url.indexOf('#');
+  if (hashIdx < 0) return null;
+  const frag = url.slice(hashIdx + 1);
+  const parts = frag.split(/[&;,]/);
+  for (const p of parts) {
+    const [k, v] = p.split('=');
+    if (k === 'w' && v) return decodeURIComponent(v);
+  }
+  return null;
+}
+
+function setWidthOnUrl(url: string, width: string | null): string {
+  const hashIdx = url.indexOf('#');
+  const base = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
+  const frag = hashIdx >= 0 ? url.slice(hashIdx + 1) : '';
+  const map: Record<string, string> = {};
+  if (frag) {
+    for (const p of frag.split(/[&;,]/)) {
+      const [k, v] = p.split('=');
+      if (k && v) map[k] = v;
+    }
+  }
+  if (width && width !== 'auto') {
+    map['w'] = encodeURIComponent(width);
+  } else {
+    delete map['w'];
+  }
+  const newFrag = Object.keys(map).map(k => `${k}=${map[k]}`).join('&');
+  return newFrag ? `${base}#${newFrag}` : base;
+}
+
+function updateImageWidthInLine(line: string, newWidth: string | null): string {
+  const m = line.match(/(!\[[^\]]*]\()([^)]*)(\))/);
+  if (!m) return line;
+  const before = m[1];
+  const inside = m[2];
+  const after = m[3];
+  const parts = splitInsideToUrlAndTitle(inside);
+  const newUrl = setWidthOnUrl(parts.url, newWidth);
+  const newSegment = before + newUrl + (parts.title ? ' ' + parts.title : '') + after;
+  return line.replace(m[0], newSegment);
+}
+
+function refreshImageBubble() {
+  const el = entryContentRef.value as HTMLTextAreaElement | null;
+  const s = el?.selectionStart ?? 0;
+  const full = entryContent.value || '';
+  const { start, end, text } = getCaretLineBounds();
+  let inside = findMarkdownImageInside(text);
+  // If caret is on a blank line right after insertion, inspect previous line
+  if (!inside) {
+    const prevEnd = start > 0 ? start - 1 : 0;
+    const prevStart = Math.max(0, full.lastIndexOf('\n', Math.max(0, prevEnd - 1)) + 1);
+    const prevText = full.slice(prevStart, prevEnd);
+    const maybe = findMarkdownImageInside(prevText);
+    if (maybe) {
+      inside = maybe;
+      bubbleLineStart.value = prevStart;
+      bubbleLineEnd.value = prevEnd;
+    } else {
+      imageBubbleVisible.value = false;
+      return;
+    }
+  } else {
+    bubbleLineStart.value = start;
+    bubbleLineEnd.value = end;
+  }
+  const parts = splitInsideToUrlAndTitle(inside);
+  bubbleCurrentWidth.value = parseWidthFromUrl(parts.url);
+  imageBubbleVisible.value = true;
+}
+
+function setImageWidthPreset(preset: string) {
+  const width = preset === 'auto' ? null : preset;
+  const start = bubbleLineStart.value;
+  const end = bubbleLineEnd.value;
+  const full = entryContent.value || '';
+  const line = full.slice(start, end);
+  const updated = updateImageWidthInLine(line, width);
+  entryContent.value = full.slice(0, start) + updated + full.slice(end);
+  bubbleCurrentWidth.value = width;
+  nextTick(() => refreshImageBubble());
+}
+
 async function addNewTag() {
   const name = tagFilter.value.trim();
   if (!name) return;
@@ -500,6 +789,14 @@ async function addNewTag() {
     // Clear the filter so the full list is visible again
     tagFilter.value = '';
   }
+}
+
+function startCreateNewJournal() {
+  creatingNewJournal.value = true;
+  selectedJournalId.value = 'new';
+  nextTick(() => {
+    try { newJournalInputRef.value?.focus(); } catch {}
+  });
 }
 
 function updateSpreadsheetColWidths() {
@@ -750,30 +1047,8 @@ if (cardType.value === 'text') {
         if (journal) {
           if (!journal.entries) journal.entries = [];
           journal.entries.unshift(newEntry);
-          if (pinAfterSave.value) {
-            const xsrf = getCookie('XSRF-TOKEN') ?? '';
-            try {
-              await fetch(`/api/journals/${journalId}/entries/${newEntry.id}/pin`, {
-                method: 'POST',
-                credentials: 'include',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-XSRF-TOKEN': xsrf,
-                },
-                body: JSON.stringify({ pinned: true }),
-              });
-              const entryRef = journal.entries.find((e: any) => e.id === newEntry.id);
-              if (entryRef) {
-                entryRef.pinned = true;
-                entryRef.display_order = null;
-              }
-              const unpinned = journal.entries.filter((e: any) => !e.pinned);
-              unpinned.forEach((e: any, idx: number) => { e.display_order = idx; });
-            } catch {}
-          } else {
-            // Update local manual order to reflect visible order
-            journal.entries.forEach((e: any, idx: number) => { e.display_order = idx; });
-          }
+          // Update local manual order to reflect visible order
+          journal.entries.forEach((e: any, idx: number) => { e.display_order = idx; });
         }
         journalStore.stopCreatingEntry();
         isSubmitting.value = false;
@@ -806,181 +1081,203 @@ function toggleCheckbox(index: number) {
 </script>
 <template>
 <form class="flex flex-col flex-1 h-full w-full gap-4 rounded-xl p-4 bg-white/60 dark:bg-zinc-900/60" @submit.prevent="beforeSubmit">
-    <!-- Header with actions (edit mode) -->
-    <div v-if="isEditMode()" class="flex items-center justify-between -mb-2">
-      <h2 class="text-base font-semibold">{{ formTitle }}</h2>
+    <!-- Sticky header with actions (desktop) -->
+    <div class="sticky top-0 z-20 -mx-4 px-4 py-2 bg-white/70 dark:bg-zinc-900/70 backdrop-blur border-b border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between">
       <div class="flex items-center gap-1">
-        <!-- Pin toggle -->
-        <button type="button" class="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60" :title="isPinned ? 'Unpin' : 'Pin'" @click="togglePinInForm">
+        <TooltipProvider :delay-duration="0">
+          <!-- Journal dropdown -->
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <div class="inline-flex">
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <button type="button" class="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60" aria-label="Journal">
+                      <Book class="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" class="w-64">
+                    <DropdownMenuLabel>Journal</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup v-model="selectedJournalId">
+                      <DropdownMenuRadioItem v-for="j in journals" :key="j.id" :value="j.id">{{ j.title }}</DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem @click="startCreateNewJournal">+ Create New Journal…</DropdownMenuItem>
+                    <div v-if="creatingNewJournal" class="px-2 pb-2">
+                      <input ref="newJournalInputRef" class="mt-1 block w-full border rounded px-2 py-1" type="text" v-model="newJournalTitle" placeholder="New Journal Title" />
+                      <div v-if="errors.title" class="text-red-500 text-xs mt-1">{{ errors.title }}</div>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent><p>Journal</p></TooltipContent>
+          </Tooltip>
+          <!-- Card type dropdown -->
+        <Tooltip>
+            <TooltipTrigger as-child>
+              <div class="inline-flex">
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <button type="button" class="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60" aria-label="Type">
+                      <FileText v-if="cardType === 'text'" class="h-4 w-4" />
+                      <ListChecks v-else-if="cardType === 'checkbox'" class="h-4 w-4" />
+                      <Table v-else-if="cardType === 'spreadsheet'" class="h-4 w-4" />
+                      <AudioLines v-else class="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Type</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup v-model="cardType">
+                      <DropdownMenuRadioItem value="text"><FileText class="inline mr-1" /> Text</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="checkbox"><ListChecks class="inline mr-1" /> Checklist</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="spreadsheet"><Table class="inline mr-1" /> Spreadsheet</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="audio"><AudioLines class="inline mr-1" /> Audio</DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent><p>Type</p></TooltipContent>
+          </Tooltip>
+          <!-- Tags dropdown -->
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <div class="inline-flex">
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <button type="button" class="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60" aria-label="Tags">
+                      <TagIcon class="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" class="w-72">
+                    <DropdownMenuLabel>Tags</DropdownMenuLabel>
+                    <div class="px-2 pb-2">
+                      <input type="text" v-model="tagFilter" @keyup.enter.prevent="canAddTag && addNewTag()" placeholder="Filter or add tag..." class="w-full mb-2 px-2 py-1 border rounded" />
+                      <div v-if="canAddTag" class="flex items-center justify-between text-xs mb-2">
+                        <span class="text-muted-foreground">New tag:</span>
+                        <button type="button" class="px-2 py-1 border rounded cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700" @click="addNewTag">Add "{{ tagFilter.trim() }}"</button>
+                      </div>
+                      <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 border rounded">
+                        <label v-for="name in (journalStore.allTags || []).filter(t => !tagFilter || t.toLowerCase().includes(tagFilter.toLowerCase()))" :key="name" class="inline-flex items-center gap-2 text-xs bg-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-1">
+                          <input type="checkbox" :value="name" v-model="selectedTags" />
+                          <span>{{ name }}</span>
+                        </label>
+                      </div>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent><p>Tags</p></TooltipContent>
+          </Tooltip>
+          <!-- Mood dropdown -->
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <div class="inline-flex">
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <button type="button" class="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60" aria-label="Mood">
+                      <span v-if="selectedMood && selectedMoodDef" class="text-base leading-none">{{ selectedMoodDef.emoji }}</span>
+                      <Smile v-else class="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" class="w-56">
+                    <DropdownMenuLabel>Mood</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup v-model="selectedMood">
+                      <DropdownMenuRadioItem v-for="m in moods" :key="m.value" :value="m.value">
+                        <span class="mr-2">{{ m.emoji }}</span> {{ m.label }}
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem @click="selectedMood = ''">Clear mood</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent><p>Mood</p></TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+      <div class="flex items-center gap-1">
+        <!-- Pin/Link/Delete only in edit mode -->
+        <button v-if="isEditMode()" type="button" class="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60" :title="isPinned ? 'Unpin' : 'Pin'" @click="togglePinInForm">
           <Pin class="h-4 w-4" :class="isPinned ? 'text-amber-500' : 'text-zinc-500'" />
         </button>
-        <!-- Link and Delete -->
         <LinkEntryButton v-if="props.entryToEdit" :entry-id="String(props.entryToEdit.id)" />
         <DeleteEntryButton v-if="props.entryToEdit" :entry-id="String(props.entryToEdit.id)" :journal-id="selectedJournalId" @deleted="emit('cancel')" />
+        <!-- Save/Cancel on desktop -->
+        <div class="hidden md:flex items-center gap-2 ml-2">
+          <button type="submit" class="bg-blue-600 text-white px-3 py-1.5 rounded cursor-pointer hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" :disabled="isSubmitting">{{ isSubmitting ? 'Saving...' : buttonLabel }}</button>
+          <button type="button" @click="cancel" class="px-3 py-1.5 rounded border border-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">{{ discardLabel }}</button>
+        </div>
       </div>
     </div>
-    <label class="block mb-2 font-semibold">Journal...</label>
-    <select
-      class="block w-full mb-4 border rounded px-2 py-1 bg-black text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-      v-model="selectedJournalId"
-      @change="handleJournalChange"
-    >
-      <option
-        v-for="journal in journals"
-        :key="journal.id"
-        :value="journal.id"
-      >
-        {{ journal.title }}
-      </option>
-      <option v-if="!isEditMode()" value="new">+ Create New Journal…</option>
-    </select>
-    <div v-if="creatingNewJournal" class="mb-4">
-      <input
-        class="block w-full border rounded px-2 py-1"
-        type="text"
-        v-model="newJournalTitle"
-        placeholder="New Journal Title"
-      />
-      <div v-if="errors.title" class="text-red-500 text-sm mt-1">{{ errors.title }}</div>
-    </div>
-    
-    <!-- Card Type Selection -->
-    <div class="flex gap-2 mb-4">
-      <button
-        type="button"
-        @click="cardType = 'text'"
-        :class="[
-          'px-4 py-2 rounded transition-colors',
-          cardType === 'text' 
-            ? 'bg-blue-600 text-white' 
-            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-        ]"
-      >
-        Text Entry
-      </button>
-      <button
-        type="button"
-        @click="cardType = 'checkbox'"
-        :class="[
-          'px-4 py-2 rounded transition-colors',
-          cardType === 'checkbox' 
-            ? 'bg-blue-600 text-white' 
-            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-        ]"
-      >
-        Checklist
-      </button>
-      <button
-        type="button"
-        @click="cardType = 'spreadsheet'"
-        :class="[
-          'px-4 py-2 rounded transition-colors',
-          cardType === 'spreadsheet' 
-            ? 'bg-blue-600 text-white' 
-            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-        ]"
-      >
-        Spreadsheet
-      </button>
-      <button
-        type="button"
-        @click="cardType = 'audio'"
-        :class="[
-          'px-4 py-2 rounded transition-colors',
-          cardType === 'audio'
-            ? 'bg-blue-600 text-white'
-            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-        ]"
-      >
-        Audio Note
-      </button>
-    </div>
+
+    <!-- Responsive layout: compose + sidebar -->
+    <div class="md:grid md:grid-cols-12 md:gap-4 w-full">
+      <!-- Compose column -->
+      <div class="md:col-span-8">
 
     <!-- Entry Title -->
-    <div class="mb-4">
-      <label class="block text-sm font-medium mb-2">Entry Title (optional)</label>
       <input
         type="text"
         v-model="entryTitle"
         placeholder="Give your entry a title..."
         class="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
-    </div>
-
-    <!-- Pin after save (create mode) -->
-    <div v-if="!isEditMode()" class="flex items-center justify-end -mt-2 mb-2">
-      <label class="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
-        <input type="checkbox" v-model="pinAfterSave" class="accent-amber-500" />
-        <span class="inline-flex items-center gap-1">
-          <Pin class="h-4 w-4" :class="pinAfterSave ? 'text-amber-500' : 'text-zinc-500'" />
-          Pin after save
-        </span>
-      </label>
-    </div>
 
 
-    <!-- Tags Selector (applies to the selected journal) -->
-    <div class="mb-4">
-      <label class="block text-sm font-medium mb-2">Tags</label>
-      <input
-        type="text"
-        v-model="tagFilter"
-        @keyup.enter.prevent="canAddTag && addNewTag()"
-        placeholder="Filter or add tag..."
-        class="w-full mb-2 px-2 py-1 border rounded"
-      />
-      <div v-if="canAddTag" class="flex items-center justify-between text-sm mb-2">
-        <span class="text-muted-foreground">New tag:</span>
-        <button type="button" class="px-2 py-1 border rounded cursor-pointer dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700" @click="addNewTag">
-          Add "{{ tagFilter.trim() }}"
-        </button>
-      </div>
-      <div class="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 border rounded">
-        <label
-          v-for="name in (journalStore.allTags || []).filter(t => !tagFilter || t.toLowerCase().includes(tagFilter.toLowerCase()))"
-          :key="name"
-          class="inline-flex items-center gap-2 text-xs bg-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-1"
-        >
-          <input type="checkbox" :value="name" v-model="selectedTags" />
-          <span>{{ name }}</span>
-        </label>
-      </div>
-    </div>
+
     
     <!-- Text Entry Content -->
 <div v-if="cardType === 'spreadsheet'" ref="spreadsheetContainer" class="w-full border rounded overflow-auto max-h-[400px] dark:border-zinc-700"></div>
     <div v-if="cardType === 'text'">
-      <textarea
-        class="block w-full border rounded px-2 py-2 min-h-[240px]"
-        v-model="entryContent"
-        :placeholder="creatingNewJournal ? 'Write your first journal entry (optional)...' : 'Write your journal entry...'"
-      ></textarea>
-         <!-- Mood Selector -->
-    <div class="mt-4">
-      <label class="block text-sm font-medium mb-2">How are you feeling?</label>
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="mood in moods"
-          :key="mood.value"
-          type="button"
-          @click="selectedMood = selectedMood === mood.value ? '' : mood.value"
-          :class="[
-            'px-3 py-2 rounded-lg border-2 transition-all transform hover:scale-105',
-            selectedMood === mood.value 
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
-              : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
-          ]"
-          :title="mood.label"
-        >
-          <span class="text-2xl">{{ mood.emoji }}</span>
-        </button>
+      <!-- Markdown toolbar -->
+      <div class="mb-2 flex items-center gap-2 py-2" @click.stop>
+        <TooltipProvider :delay-duration="0">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button type="button" @mousedown.stop.prevent @click.stop.prevent="onClickPickImage($event)" aria-label="Insert image" class="h-8 w-8 inline-flex items-center justify-center rounded border hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60">
+                <Loader2 v-if="imageUploading" class="h-4 w-4 animate-spin" />
+                <ImageIcon v-else class="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent><p>Insert image</p></TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <input ref="fileInputRef" type="file" accept="image/*" class="hidden" multiple @change.stop="onFilesSelected" />
+        <span v-if="imageError" class="text-xs text-red-500">{{ imageError }}</span>
       </div>
-      <div v-if="selectedMood" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-        Mood: {{ moods.find(m => m.value === selectedMood)?.label }}
+      <div class="relative">
+        <textarea
+          ref="entryContentRef"
+          class="block w-full border rounded px-2 py-2 min-h-[240px] md:min-h-[320px]"
+          v-model="entryContent"
+          :placeholder="creatingNewJournal ? 'Write your first journal entry (optional)...' : 'Write your journal entry...'"
+          @drop="onTextAreaDrop"
+          @dragover.prevent="onTextAreaDragOver"
+          @paste="onTextAreaPaste"
+          @input="(e: any) => { autoResizeTextarea(e?.target as HTMLTextAreaElement); refreshImageBubble(); }"
+          @keyup="refreshImageBubble"
+          @click="refreshImageBubble"
+          @mouseup="refreshImageBubble"
+          @focus="refreshImageBubble"
+          @blur="imageBubbleVisible = false"
+        ></textarea>
+        <div v-if="imageBubbleVisible" class="absolute top-2 right-2 z-10 bg-white/95 dark:bg-zinc-900/95 border border-zinc-200 dark:border-zinc-700 shadow-lg rounded-md px-2 py-1 flex items-center gap-1 text-xs">
+          <span class="text-zinc-500 mr-1">Image width:</span>
+          <button type="button" @click="setImageWidthPreset('auto')" :class="['px-2 py-0.5 rounded-full border', bubbleCurrentWidth ? 'border-zinc-300 text-zinc-600 dark:border-zinc-700' : 'bg-blue-600 text-white border-blue-600']">Auto</button>
+          <button type="button" @click="setImageWidthPreset('50%')" :class="['px-2 py-0.5 rounded-full border', bubbleCurrentWidth === '50%' ? 'bg-blue-600 text-white border-blue-600' : 'border-zinc-300 text-zinc-600 dark:border-zinc-700']">50%</button>
+          <button type="button" @click="setImageWidthPreset('100%')" :class="['px-2 py-0.5 rounded-full border', bubbleCurrentWidth === '100%' ? 'bg-blue-600 text-white border-blue-600' : 'border-zinc-300 text-zinc-600 dark:border-zinc-700']">100%</button>
+          <button type="button" @click="setImageWidthPreset('300px')" :class="['px-2 py-0.5 rounded-full border', bubbleCurrentWidth === '300px' ? 'bg-blue-600 text-white border-blue-600' : 'border-zinc-300 text-zinc-600 dark:border-zinc-700']">300px</button>
+          <button type="button" @click="setImageWidthPreset('600px')" :class="['px-2 py-0.5 rounded-full border', bubbleCurrentWidth === '600px' ? 'bg-blue-600 text-white border-blue-600' : 'border-zinc-300 text-zinc-600 dark:border-zinc-700']">600px</button>
+        </div>
       </div>
-    </div>
-      <div class="mt-6 bg-neutral-900/80 rounded-lg shadow p-3">
-        <label class="block font-semibold mb-1 text-sm text-gray-400 dark:text-gray-300">Live Markdown Preview:</label>
+      <div class="mt-2 flex items-center justify-between md:hidden">
+        <button type="button" class="px-2 py-1 rounded border bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-xs" @click="showPreview = !showPreview">{{ showPreview ? 'Hide preview' : 'Preview' }}</button>
+      </div>
+      <div v-if="showPreview" class="mt-6 bg-neutral-900/80 rounded-lg shadow p-3 md:hidden">
+        <label class="block font-semibold mb-1 text-sm text-gray-400 dark:text-gray-300">preview</label>
         <div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderedMarkdown"></div>
       </div>
     </div>
@@ -1047,7 +1344,6 @@ function toggleCheckbox(index: number) {
       <div class="mb-3 flex flex-col gap-2">
         <!-- Mic selection and test -->
         <div class="flex flex-wrap items-center gap-2">
-          <label class="text-sm">Microphone:</label>
           <select v-model="selectedMicId" class="border rounded px-2 py-1 min-w-48">
             <option v-for="d in micDevices" :key="d.deviceId" :value="d.deviceId">{{ d.label || 'Microphone' }}</option>
           </select>
@@ -1086,8 +1382,21 @@ function toggleCheckbox(index: number) {
     </div>
     
     <div v-if="errors.content" class="text-red-500 text-sm mt-1">{{ errors.content }}</div>
+      </div> <!-- end compose column -->
 
-    <div class="flex gap-2 mt-4 justify-end">
+      <!-- Desktop sidebar: preview -->
+      <div class="hidden md:block md:col-span-4 space-y-4">
+        <!-- Desktop Preview -->
+        <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 p-3">
+          <label class="block font-semibold mb-1 text-sm text-gray-600 dark:text-gray-300">preview</label>
+          <div class="prose prose-neutral dark:prose-invert max-w-none" v-html="renderedMarkdown"></div>
+        </div>
+      </div>
+    </div> <!-- end grid -->
+
+
+    <!-- Mobile sticky action bar -->
+    <div class="md:hidden sticky bottom-0 -mx-4 px-4 py-3 bg-white/80 dark:bg-zinc-900/80 backdrop-blur border-t border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-end gap-2 pb-[env(safe-area-inset-bottom)]">
       <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded cursor-pointer hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" :disabled="isSubmitting">{{ isSubmitting ? 'Saving...' : buttonLabel }}</button>
       <button type="button" @click="cancel" class="px-4 py-2 rounded border border-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">{{ discardLabel }}</button>
     </div>

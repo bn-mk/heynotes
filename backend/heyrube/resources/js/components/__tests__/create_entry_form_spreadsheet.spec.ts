@@ -49,9 +49,10 @@ describe('CreateEntryForm (spreadsheet mode)', () => {
 
     const wrapper = mount(CreateEntryForm, { global: { stubs } });
 
-    // Switch to spreadsheet
-    const btnSpreadsheet = wrapper.findAll('button').find(b => b.text().includes('Spreadsheet'))!;
-    await btnSpreadsheet.trigger('click');
+    // Switch to spreadsheet programmatically (dropdown-based UI)
+    ;(wrapper.vm as any).cardType = 'spreadsheet';
+    ;(wrapper.vm as any).spreadsheetData = '[["cell"]]';
+    await (wrapper.vm as any).$nextTick?.();
 
     // Submit
     const form = wrapper.find('form');
