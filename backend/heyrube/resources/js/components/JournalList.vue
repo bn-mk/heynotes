@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+import { SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
 import { NotebookPen } from 'lucide-vue-next';
 import { useJournalStore } from '@/stores/journals';
 import DeleteJournalButton from '@/components/DeleteJournalButton.vue';
 const component = NotebookPen;
 const journalStore = useJournalStore();
 
+// Access sidebar context to control the mobile sheet
+const { isMobile, setOpenMobile } = useSidebar();
+
 function handleSelect(journalId: string | number) {
   journalStore.selectJournal(String(journalId));
+  // On mobile, close the sidebar after selecting a journal
+  if (isMobile?.value) setOpenMobile(false);
 }
 
 </script>

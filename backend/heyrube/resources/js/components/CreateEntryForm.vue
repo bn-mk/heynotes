@@ -1217,6 +1217,7 @@ function toggleCheckbox(index: number) {
     <div class="md:grid md:grid-cols-12 md:gap-4 w-full">
       <!-- Compose column -->
       <div class="md:col-span-8">
+      
 
     <!-- Entry Title -->
       <input
